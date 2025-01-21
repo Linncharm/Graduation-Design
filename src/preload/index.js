@@ -4,7 +4,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { Adb } from '@devicefarmer/adbkit'
 
 //import scrcpyPath from '../../resources/core/scrcpy.exe?asset&asarUnpack'
-const scrcpyPath = `D:\\Graduation-Design\\Working\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
+//const scrcpyPath = `D:G\\Graduation-Design\\Working\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
+const scrcpyPath = `D:\\Graduate-Design\\Graduation-Design\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
 import adbPath from '../../resources/core/adb.exe?asset&asarUnpack'
 import { addContext } from './helpers/index.js'
 
@@ -19,6 +20,7 @@ const api = {}
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
 addContext('electron', electronAPI)
+
 addContext('api', api)
 
 addContext('adbkit', () => {

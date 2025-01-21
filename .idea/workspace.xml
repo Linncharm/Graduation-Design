@@ -4,7 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5dc55303-fd26-4dbf-a2a2-16795fa4b033" name="Changes" comment="" />
+    <list default="true" id="5dc55303-fd26-4dbf-a2a2-16795fa4b033" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pnpm-lock.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/pnpm-lock.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/preload/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/preload/index.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/renderer/src/App.vue" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/src/App.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/renderer/src/main.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/src/main.js" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -13,9 +20,9 @@
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
-        <option value="JavaScript File" />
         <option value="TypeScript File" />
         <option value="Vue Composition API Component" />
+        <option value="JavaScript File" />
       </list>
     </option>
   </component>
@@ -27,6 +34,18 @@
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "Linncharm"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Linncharm/Graduation-Design.git",
+    "accountId": "99e550f7-58ea-4a99-b00b-f7a168803847"
+  }
+}]]></component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/node_modules/.pnpm/@viarotel-org+postcss-config@0.7.0_postcss@8.5.1/node_modules/@viarotel-org/postcss-config/dist/base.mjs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/node_modules/.pnpm/@viarotel-org+unocss-config@0.7.4_postcss@8.5.1_rollup@4.31.0_vite@6.0.7_@types+node@22.10.7__zmidg4gx2w3mab2tymcg6k3qpa/node_modules/@viarotel-org/unocss-config/src/base/index.js" root0="FORCE_HIGHLIGHTING" />
@@ -50,15 +69,16 @@
   "keyToString": {
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
     "ignore.virus.scanning.warn.message": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "prettierjs.PrettierConfiguration.Package": "D:\\Graduation-Design\\Working\\node_modules\\prettier",
+    "prettierjs.PrettierConfiguration.Package": "D:\\Graduate-Design\\Graduation-Design\\node_modules\\prettier",
     "settings.editor.selected.configurable": "me.rerere.unocssintellij.settings.UnocssSettingsConfigurable",
-    "ts.external.directory.path": "D:\\Graduation-Design\\Working\\node_modules\\typescript\\lib",
+    "ts.external.directory.path": "D:\\Graduate-Design\\Graduation-Design\\node_modules\\typescript\\lib",
     "vue.rearranger.settings.migration": "true"
   },
   "keyToStringList": {
@@ -67,6 +87,11 @@
     ]
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\Graduate-Design\Graduation-Design\src\renderer\src" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -93,6 +118,7 @@
       <workItem from="1737447136913" duration="3622000" />
       <workItem from="1737452171260" duration="420000" />
       <workItem from="1737452602814" duration="53000" />
+      <workItem from="1737469214572" duration="5569000" />
     </task>
     <servers />
   </component>
