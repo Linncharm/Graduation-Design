@@ -8,6 +8,8 @@ interface AdbKit {
   connect: (...params: any[]) => Promise<void>;
   disconnect: (...params: any[]) => Promise<void>;
   watch: (callback: (device: any) => void) => Promise<() => void>;
+  connectCode: (password:string,options:any) => Promise<any>;
+
 }
 
 interface Scrcpy {

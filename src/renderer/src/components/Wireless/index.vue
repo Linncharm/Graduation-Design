@@ -18,9 +18,24 @@
       <el-button type="primary" :loading="loading" @click="getDeviceData">
         刷新设备
       </el-button>
-      <el-button type="warning" @click="handleReset">
-        重启服务
-      </el-button>
+      <el-popover
+        ref="popoverRef"
+        trigger="click"
+        placement="bottom"
+        width="200"
+      >
+        <template #reference>
+          <el-button
+            type="primary"
+            @click="handleQRConnect"
+            :loading="qrCodeLoading"
+            class="flex-none !border-none"
+          >
+            二维码连接
+          </el-button>
+        </template>
+        <el-image :key="dataUrl" :src="dataUrl" class="!w-full" fit="contain"></el-image>
+      </el-popover>
     </div>
     <div class="pt-4 flex-1 h-0 overflow-hidden">
       <DevicesTable
@@ -36,7 +51,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { isIPWithPort, sleep } from '@renderer/utils/index.js'
+import { generateAdbPairingQR, sleep } from '@renderer/utils/index.js'
 import storage from '@renderer/utils/storages'
 import { getCurrentInstance } from 'vue'
 import DevicesTable from '../DevicesTable/index.vue'
@@ -45,12 +60,14 @@ const { appContext } = getCurrentInstance()
 
 const globalAdb = appContext.config.globalProperties.$adb
 const globalScrcpy = appContext.config.globalProperties.$scrcpy
-const globalElectron = appContext.config.globalProperties.$electron
 const globalMessage = appContext.config.globalProperties.$message
 
 const adbCache = storage.get('adbCache') || {}
 
+const popoverRef = ref()
 const loading = ref(false)
+const qrCodeLoading = ref(false)
+const dataUrl = ref('')
 const loadingText = ref('初始化中...')
 const connectLoading = ref(false)
 const deviceList1 = ref([])
@@ -89,9 +106,24 @@ const handleScreenUp = (row) => {
   globalAdb.shell(row.id, 'input keyevent KEYCODE_POWER')
 }
 
-const handleReset = () => {
-  globalElectron.ipcRenderer.send('restart-app')
+const handleQRConnect = async () => {
+
+  const data = await generateAdbPairingQR()
+  console.log('data', data)
+  dataUrl.value = data.dataUrl
+
+
+  qrCodeLoading.value = true
+  try {
+    await globalAdb.connectCode(data.password)
+  }
+  catch (error) {
+    console.warn(error.message)
+  }
+  await getDeviceData()
+  qrCodeLoading.value = false
 }
+
 
 const handleConnect = async () => {
   if (!formData.value.host) {
