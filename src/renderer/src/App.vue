@@ -1,46 +1,83 @@
 <template>
-  <div class="absolute inset-0 px-4 pb-4 h-full overflow-hidden">
-    <el-tabs v-model="activeTab" class="el-tabs-flex">
-      <el-tab-pane
-        v-for="(item, index) of tabsModel"
-        :key="index"
-        :label="item.label"
-        :name="item.prop"
-        lazy
-      >
-        <component :is="componentMap[item.prop]" />
-      </el-tab-pane>
-    </el-tabs>
-  </div>
+  <el-config-provider :locale="locale">
+    <div class="absolute inset-0 px-4 pb-4 h-full overflow-hidden">
+      <el-button @click="handleLanguageChange"> 切换语言 </el-button>
+
+      <el-tabs v-model="activeTab" class="el-tabs-flex">
+        <el-tab-pane
+          v-for="(item, index) of tabsModel"
+          :key="index"
+          :label="$t(item.label)"
+          :name="item.prop"
+          lazy
+        >
+          <component :is="componentMap[item.prop]" />
+        </el-tab-pane>
+      </el-tabs>
+    </div>
+  </el-config-provider>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, ref } from 'vue'
+import { i18n } from './locales/index.js'
 import Wired from './components/Wired/index.vue'
 import Wireless from './components/Wireless/index.vue'
 import Advanced from './components/Advanced/index.vue'
+
+import enUs from 'element-plus/es/locale/lang/en'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+
+const { appContext } = getCurrentInstance()
+const globalElectron = appContext.config.globalProperties.$electron
+
+const localeModel = {
+  'en-US': enUs,
+  'zh-CN': zhCn
+}
+
+const handleLanguageChange = () => {
+  const newLocale = i18n.global.locale === 'en-US' ? 'zh-CN' : 'en-US'
+  //globalElectron.ipcRenderer.send('language-change', newLocale)
+  i18n.global.locale = newLocale
+}
+
+const locale = computed(() => {
+  const i18nLocale = i18n.global.locale
+
+  return localeModel[i18nLocale]
+})
 
 //将字符串映射到组件
 const componentMap = {
   Wired,
   Wireless,
-  Advanced,
+  Advanced
 }
 
 const tabsModel = ref([
   {
-    label: '有线模式',
-    prop: 'Wired',
+    label: 'tabs.wired',
+    prop: 'Wired'
   },
   {
-    label: '无线模式',
-    prop: 'Wireless',
+    label: 'tabs.wireless',
+    prop: 'Wireless'
   },
   {
-    label: '高级配置',
-    prop: 'Advanced',
-  },
+    label: 'tabs.advanced',
+    prop: 'Advanced'
+  }
 ])
 
 const activeTab = ref('Wired')
+
+onMounted(() => {
+  console.log('App mounted')
+  // TODO 重构为进程间通信
+  // globalElectron.ipcRenderer.on('language-change', (_event, data) => {
+  //   console.log('language-change', data)
+  //   i18n.global.locale = data
+  // })
+})
 </script>
