@@ -31,7 +31,6 @@ addContext('adbkit', () => {
   const kill = async (...params) => await client.kill(...params)
   const connect = async (...params) => await client.connect(...params)
   const disconnect = async (...params) => await client.disconnect(...params)
-
   const watch = async (callback) => {
     const tracker = await client.trackDevices()
     tracker.on('add', (device) => {
