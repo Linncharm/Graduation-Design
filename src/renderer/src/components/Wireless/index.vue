@@ -158,15 +158,38 @@ const handleStop = async (row) => {
   row.$stopLoading = false
 }
 
+const addScrcpyConfigs = () => {
+  const configs = storage.get('scrcpyCache') || {}
+  const value = Object.entries(configs)
+    .reduce((arr, [key, value]) => {
+      if (!value) {
+        return arr
+      }
+      if (typeof value === 'boolean') {
+        arr.push(key)
+      }
+      else {
+        arr.push(`${key}=${value}`)
+      }
+      return arr
+    }, [])
+    .join(' ')
+
+  console.log('addScrcpyConfigs.value', value)
+
+  return value
+}
+
 const handleStart = async (row) => {
   row.$loading = true
   try {
-    await globalScrcpy.shell(`--serial=${row.id}`)
+    await globalScrcpy.shell(`--serial=${row.id} ${addScrcpyConfigs()}`)
   } catch (error) {
     globalMessage.warning(error.message)
   }
   row.$loading = false
 }
+
 
 onMounted(() => {
   getDeviceData()

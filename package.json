@@ -1,8 +1,8 @@
 {
-  "name": "escrcpy",
+  "name": "linn",
   "version": "0.0.0",
   "description": "Scrcpy Powered by Electron",
-  "author": "viarotel",
+  "author": "linn",
   "homepage": "https://github.com/viarotel-org/escrcpy",
   "main": "./out/main/index.js",
   "type": "module",
