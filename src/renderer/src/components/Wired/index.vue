@@ -18,6 +18,18 @@
       />
     </div>
   </div>
+<!--  <div>-->
+<!--    <el-button-->
+<!--      v-if="isShowButton"-->
+<!--      :style="{-->
+<!--        position: 'absolute',-->
+<!--        left: `${buttonPosition.x}px`,-->
+<!--        top: `${buttonPosition.y}px`-->
+<!--      }">-->
+<!--    >-->
+<!--      Test-->
+<!--    </el-button>-->
+<!--  </div>-->
 </template>
 
 <script setup>
@@ -25,28 +37,21 @@ import { ref, onMounted } from 'vue';
 import { isIPWithPort, sleep } from '@renderer/utils/index.js';
 import { getCurrentInstance } from 'vue';
 import DevicesTable from '../DevicesTable/index.vue'
+import storage from '@renderer/utils/storages/index.js'
+// import { windowManager } from '../../../../../plugins/mock/dist/index.js'
 
 const { appContext } = getCurrentInstance();
 
 const globalAdb = appContext.config.globalProperties.$adb;
 const globalScrcpy = appContext.config.globalProperties.$scrcpy;
 const globalElectron = appContext.config.globalProperties.$electron;
-const globalMessage = appContext.config.globalProperties.$message;
+
+const isShowButton = ref(false);
+const buttonPosition = ref({ x: 0, y: 0 });
 
 const loading = ref(false);
 const loadingText = ref('初始化中...');
 const deviceList = ref([]);
-
-const copyToClipboard = async (text) => {
-  try {
-    await navigator.clipboard.writeText(text);
-    globalMessage.success('复制成功');
-  } catch (err) {
-    globalMessage.error('复制失败');
-  }
-};
-
-
 
 const getDeviceData = async () => {
   loading.value = true;
@@ -81,18 +86,51 @@ const handleReset = () => {
   globalElectron.ipcRenderer.send('restart-app');
 };
 
+const addScrcpyConfigs = () => {
+  const configs = storage.get('scrcpyCache') || {}
+  const value = Object.entries(configs)
+    .reduce((arr, [key, value]) => {
+      if (!value) {
+        return arr
+      }
+      if (typeof value === 'boolean') {
+        arr.push(key)
+      }
+      else {
+        arr.push(`${key}=${value}`)
+      }
+      return arr
+    }, [])
+    .join(' ')
+
+  console.log('addScrcpyConfigs.value', value)
+
+  return value
+}
+
 const handleStart = async (row) => {
   row.$loading = true;
   try {
-    const result = await globalScrcpy.shell(`-s ${row.id}`);
-    console.log('result', result);
+    const scrcpyTitle = 'Test-Device';
+    const result = await globalScrcpy.shell(`--serial=${row.id} ${addScrcpyConfigs()} --window-title=${scrcpyTitle}`);
+    globalElectron.ipcRenderer.on('scrcpy-window-info', (event, data) => {
+      console.log("renderer process received scrcpy-window-info", data);
+      const { id, x, y, height, width } = data
+
+      // popup的左上角坐标
+      let startX = x + width
+      let startY = y
+
+      isShowButton.value = true;
+      buttonPosition.value = { x: startX, y: startY };
+    })
+
   } catch (error) {
     if (error.message) {
       globalElectron.ipcRenderer.send('show-message', { type: 'warning', message: error.message });
       row.$loading = false;
     }
   }finally {
-    console.log('finally');
     row.$loading = false;
   }
 

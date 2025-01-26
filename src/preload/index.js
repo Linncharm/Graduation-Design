@@ -1,12 +1,17 @@
+import { ipcRenderer  } from 'electron'
+
 const path = require('node:path')
 import net from 'node:net'
 import { Bonjour } from 'bonjour-service'
 import { electronAPI } from '@electron-toolkit/preload'
 import { Adb } from '@devicefarmer/adbkit'
 
+import { windowManager } from '../../plugins/mock/dist/index.js'
+
+
 //import scrcpyPath from '../../resources/core/scrcpy.exe?asset&asarUnpack'
-//const scrcpyPath = `D:G\\Graduation-Design\\Working\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
-const scrcpyPath = `D:\\Graduate-Design\\Graduation-Design\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
+const scrcpyPath = `D:\\Graduation-Design\\Working\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
+// const scrcpyPath = `D:\\Graduate-Design\\Graduation-Design\\resources\\core\\scrcpy.exe` // 暂时写死，后面再重构路径系统
 import adbPath from '../../resources/core/adb.exe?asset&asarUnpack'
 import { addContext } from './helpers/index.js'
 
@@ -62,7 +67,6 @@ export class DeviceScanner {
     }
   }
 }
-
 const util = require('node:util')
 // 异步调用一个子进程的exec方法
 const exec = util.promisify(require('node:child_process').exec)
@@ -210,34 +214,30 @@ addContext('adbkit', () => {
 addContext('scrcpy', () => {
   const shell = (command) => {
     return new Promise((resolve, reject) => {
-      const scrcpyProcess = exec(`${scrcpyPath} ${command}`, { env: { ...process.env, ADB: adbPath } });
-
-      let stdout = '';
-      let stderr = '';
-
-      scrcpyProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      scrcpyProcess.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      scrcpyProcess.on('close', (code) => {
-        if (code !== 0) {
-          console.error(`scrcpyProcess exited with code ${code}`);
-          reject(new Error(stderr));
-        } else {
-          console.log(`stdout: ${stdout}`);
-          console.error(`stderr: ${stderr}`);
-          resolve(stdout);
+      const scrcpyProcess = exec(`${scrcpyPath} ${command}`, { env: { ...process.env, ADB: adbPath } }, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          reject(error);
         }
-      });
+        console.log(`stdout: ${stdout}`);
+        console.error(`stderr: ${stderr}`);
+      })
 
-      scrcpyProcess.on('error', (error) => {
-        console.error(`scrcpyProcess error: ${error}`);
-        reject(error);
-      });
+      // 延迟 500 毫秒再获取窗口
+      setTimeout(() => {
+        console.log('开始获取窗口信息');
+        const windows = windowManager.getWindows();
+        const scrcpyWindow = windows.find(window => window.getTitle() === 'Test-Device');
+        if (scrcpyWindow) {
+          const { x ,y,height, width } = scrcpyWindow.getBounds();
+          const { id } = scrcpyWindow
+          console.log(`窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`);
+          ipcRenderer.send('scrcpy-window-info', { id ,x ,y ,height ,width });
+          console.log('renderer process send scrcpy-window-info', { id ,x ,y ,height ,width });
+        }
+      }, 2000); // 延迟获取窗口信息，确保窗口初始化完成
+      //TODO 添加进程启动时的判断逻辑
+      resolve();
     });
   };
 
