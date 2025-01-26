@@ -1,4 +1,4 @@
-const { windowManager } = require("./dist/index");
+const { windowManager } = require('./dist-commonjs/index.js');
 
 
 const window = windowManager.getActiveWindow();

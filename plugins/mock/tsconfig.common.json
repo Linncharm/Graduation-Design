@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-      "outDir": "./dist/",
+      "outDir": "./dist-commonjs/",
       "typeRoots": ["./node_modules/@types"],
       "noImplicitAny": true,
       "module": "commonjs",
@@ -15,4 +15,3 @@
     "include": ["./src/**/*.ts"],
     "exclude": ["node_modules/**/*"]
   }
-  

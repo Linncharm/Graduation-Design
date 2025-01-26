@@ -9,7 +9,9 @@ let addon: any;
 
 if (platform() === "win32" || platform() === "darwin") {
   const ADDON_PATH = (process.env.NODE_ENV != "dev") ? "Release" : "Debug";
-  addon = require(`node-gyp-build`)(resolve(__dirname, '..'));
+  // addon = require(`node-gyp-build`)(resolve(__dirname, '..'));
+  addon = require(resolve(__dirname, '../../plugins/mock/build/Release/addon.node')); // 静态编译 dirname在preload内
+  console.log('addon', addon);
 }
 
 let interval: any = null;
@@ -34,7 +36,7 @@ class WindowManager extends EventEmitter {
       if (event === "window-activated") {
         interval = setInterval(async () => {
           const win = addon.getActiveWindow();
-          
+
           if (lastId !== win) {
             lastId = win;
             this.emit("window-activated", new Window(win));
