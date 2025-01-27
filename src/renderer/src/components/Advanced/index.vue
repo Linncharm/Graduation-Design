@@ -69,14 +69,17 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { reactive, watch,getCurrentInstance } from 'vue'
 import { ElMessage } from 'element-plus'
 import storage from '@renderer/utils/storages'
 import * as scrcpyConfigs from './configs/index.js'
 
+const { appContext } = getCurrentInstance()
+const globalElectron = appContext.config.globalProperties.$electron
 const scrcpyCache = storage.get('scrcpyCache') || {}
 
 const scrcpyModel = [
+  { label: '常规配置', type: 'general' },
   { label: '显示配置', type: 'video' },
   { label: '设备控制', type: 'device' },
   // { label: '音频控制', type: 'audio' },
@@ -109,9 +112,21 @@ const handleReset = (type) => {
   storage.set('scrcpyCache', scrcpyForm)
 }
 
-watch(scrcpyForm, () => {
-  storage.set('scrcpyCache', scrcpyForm)
-  ElMessage.success('保存配置成功，将在下一次控制设备时生效')
+watch(scrcpyForm, (newVal, _oldVal) => {
+  const cache = storage.get('scrcpyCache') || {}
+  // 监听语言变化
+  if (cache.lang !== scrcpyForm.lang) {
+    globalElectron.ipcRenderer.send('language-change', newVal.lang)
+    storage.set('scrcpyCache', newVal)
+    ElMessage.success('语言设置成功')
+  } else {
+    // 保存配置到存储中
+    storage.set('scrcpyCache', newVal)
+    ElMessage.success('保存配置成功，将在下一次控制设备时生效')
+  }
+
+
+
 }, { deep: true })
 </script>
 

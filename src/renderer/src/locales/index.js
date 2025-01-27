@@ -1,13 +1,15 @@
 import { createI18n } from 'vue-i18n'
 import en from './modules/en_US.json'
 import zh from './modules/zh-CN.json'
+import localStorage from '@renderer/utils/storages/localStorage.js'
 
 const messages = {
   en: en,
   zh: zh
 };
 
-export const locale = window.navigator.language
+// 获取缓存的语言设置
+export const locale = localStorage.get('scrcpyCache')['lang'] || window.navigator.language
 
 export const i18n = createI18n({
   allowComposition: false,

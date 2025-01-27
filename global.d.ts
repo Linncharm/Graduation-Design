@@ -1,5 +1,7 @@
 // global.d.ts
 import { electronAPI } from '@electron-toolkit/preload'
+import {i18n} from './src/renderer/src/locales/index'
+import { ComponentCustomProperties } from 'vue'
 
 interface AdbKit {
   getDevices: () => Promise<any>;
@@ -20,4 +22,10 @@ interface Window {
   adbkit: () => AdbKit;
   scrcpy: () => Scrcpy;
   electron: typeof electronAPI;
+}
+
+declare module '@vue/runtime-core' {
+  interface ComponentCustomProperties {
+    $t: typeof i18n.global.t
+  }
 }

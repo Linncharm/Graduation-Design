@@ -5,6 +5,7 @@
     "baseUrl": ".",
     "paths": {
       "@renderer/*": ["src/renderer/src/*"]
-    }
+    },
+    "types": ["./global.d.ts"]
   }
 }
