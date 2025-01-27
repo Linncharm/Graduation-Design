@@ -18,23 +18,11 @@
       />
     </div>
   </div>
-<!--  <div>-->
-<!--    <el-button-->
-<!--      v-if="isShowButton"-->
-<!--      :style="{-->
-<!--        position: 'absolute',-->
-<!--        left: `${buttonPosition.x}px`,-->
-<!--        top: `${buttonPosition.y}px`-->
-<!--      }">-->
-<!--    >-->
-<!--      Test-->
-<!--    </el-button>-->
-<!--  </div>-->
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { isIPWithPort, sleep } from '@renderer/utils/index.js';
+import { sleep } from '@renderer/utils/index.js';
 import { getCurrentInstance } from 'vue';
 import DevicesTable from '../DevicesTable/index.vue'
 import storage from '@renderer/utils/storages/index.js'
@@ -52,6 +40,13 @@ const buttonPosition = ref({ x: 0, y: 0 });
 const loading = ref(false);
 const loadingText = ref('初始化中...');
 const deviceList = ref([]);
+
+const buttonStyle = ref({
+  position: 'absolute',
+  left: `${buttonPosition.value.x}px`,
+  top: `${buttonPosition.value.y}px`,
+  cursor: 'move'
+});
 
 const getDeviceData = async () => {
   loading.value = true;
@@ -93,6 +88,9 @@ const addScrcpyConfigs = () => {
       if (!value) {
         return arr
       }
+      if (key === 'lang') {
+        return arr
+      }
       if (typeof value === 'boolean') {
         arr.push(key)
       }
@@ -113,18 +111,6 @@ const handleStart = async (row) => {
   try {
     const scrcpyTitle = 'Test-Device';
     const result = await globalScrcpy.shell(`--serial=${row.id} ${addScrcpyConfigs()} --window-title=${scrcpyTitle}`);
-    globalElectron.ipcRenderer.on('scrcpy-window-info', (event, data) => {
-      console.log("renderer process received scrcpy-window-info", data);
-      const { id, x, y, height, width } = data
-
-      // popup的左上角坐标
-      let startX = x + width
-      let startY = y
-
-      isShowButton.value = true;
-      buttonPosition.value = { x: startX, y: startY };
-    })
-
   } catch (error) {
     if (error.message) {
       globalElectron.ipcRenderer.send('show-message', { type: 'warning', message: error.message });
