@@ -1,3 +1,6 @@
+//TODO 将窗口的查找，监听关闭，监听移动等操作封装到底层插件中，提供给renderer调用
+//TODO 想好调用方式
+
 import { ipcRenderer } from 'electron'
 import net from 'node:net'
 import { Bonjour } from 'bonjour-service'
@@ -100,48 +103,25 @@ class ScrcpyWindow extends EventEmitter {
     })
   }
 
-  async checkScrcpyWindow(checkType) {
+  async checkScrcpyWindow() {
     return new Promise((resolve, reject) => {
       const start = Date.now()
-      const checkInterval = checkType === 'Bounds' ? 1 : 500 // 每隔500毫秒检查一次,如果是位置就间隔0,已经有1000毫秒的间隔了
+      const checkInterval =  500 // 每隔500毫秒检查一次,如果是位置就间隔0,已经有1000毫秒的间隔了
       const timeout = 10000 // 最大等待时间10秒
 
       const checkScrcpyWindowIntervalId = setInterval(() => {
-
-        // // 检查 this.window 是否为 null
-        // if (checkType === 'Bounds' && !this.window) {
-        //   clearInterval(intervalId);
-        //   reject(new Error('窗口已关闭'));
-        //   return;
-        // }
-
         let windows = windowManager.getWindows()
         const scrcpyWindow = windows.find((window) => window.getTitle() === 'Test-Device')
 
         if (scrcpyWindow) {
-          if (checkType !== 'Bounds') {
             clearInterval(checkScrcpyWindowIntervalId)
-          }
           let Bounds = scrcpyWindow.getBounds()
           let { x, y, height, width } = Bounds
           let { id } = scrcpyWindow
-          if (checkType !== 'Bounds') {
-            this.windowBounds = Bounds
-            ipcRenderer.send('scrcpy-window-info', { id, x, y, height, width })
-            console.log(`窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
-            console.log('renderer process send scrcpy-window-info', { id, x, y, height, width })
-          } else {
-            if (this.windowBounds && this.windowBounds.x === Bounds.x && this.windowBounds.y === Bounds.y && this.windowBounds.height === Bounds.height && this.windowBounds.width === Bounds.width) {
-              console.log('窗口位置未变化')
-              resolve(scrcpyWindow)
-            }else {
-              this.windowBounds = Bounds
-              ipcRenderer.send('updated-window-info', { id, x, y, height, width })
-              console.log(`新窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
-              console.log('renderer process send updated-window-info', { id, x, y, height, width })
-            }
-
-          }
+          this.windowBounds = Bounds
+          ipcRenderer.send('scrcpy-window-info', { id, x, y, height, width })
+          console.log(`窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
+          console.log('renderer process send scrcpy-window-info', { id, x, y, height, width })
           resolve(scrcpyWindow)
         } else if (Date.now() - start >= timeout) {
           clearInterval(checkScrcpyWindowIntervalId)
@@ -154,55 +134,42 @@ class ScrcpyWindow extends EventEmitter {
     })
   }
 
-  async checkScrcpyWindowBound(checkType) {
+  async checkScrcpyWindowBound() {
     return new Promise((resolve, reject) => {
       const start = Date.now()
-      const checkInterval = checkType === 'Bounds' ? 1 : 500 // 每隔500毫秒检查一次,如果是位置就间隔0,已经有1000毫秒的间隔了
+      const checkInterval = 1 // 每隔500毫秒检查一次,如果是位置就间隔0,已经有1000毫秒的间隔了
       const timeout = 10000 // 最大等待时间10秒
 
       this.checkScrcpyWindowIntervalId = setInterval(() => {
 
         // // 检查 this.window 是否为 null
-        // if (checkType === 'Bounds' && !this.window) {
-        //   clearInterval(intervalId);
-        //   reject(new Error('窗口已关闭'));
-        //   return;
-        // }
+        if (!this.window) {
+          clearInterval(this.checkScrcpyWindowIntervalId);
+          reject(new Error('窗口已关闭'));
+          return;
+        }
 
         let windows = windowManager.getWindows()
         const scrcpyWindow = windows.find((window) => window.getTitle() === 'Test-Device')
 
         if (scrcpyWindow) {
-          if (checkType !== 'Bounds') {
-            clearInterval(this.checkScrcpyWindowIntervalId)
-          }
           let Bounds = scrcpyWindow.getBounds()
           let { x, y, height, width } = Bounds
           let { id } = scrcpyWindow
-          if (checkType !== 'Bounds') {
-            this.windowBounds = Bounds
-            ipcRenderer.send('scrcpy-window-info', { id, x, y, height, width })
-            console.log(`窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
-            console.log('renderer process send scrcpy-window-info', { id, x, y, height, width })
-          } else {
             if (this.windowBounds && this.windowBounds.x === Bounds.x && this.windowBounds.y === Bounds.y && this.windowBounds.height === Bounds.height && this.windowBounds.width === Bounds.width) {
-              console.log('窗口位置未变化')
+              // console.log('窗口位置未变化')
               resolve(scrcpyWindow)
             }else {
-              this.windowBounds = Bounds
+              this.windowBounds = Bounds // 更新窗口位置
               ipcRenderer.send('updated-window-info', { id, x, y, height, width })
-              console.log(`新窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
-              console.log('renderer process send updated-window-info', { id, x, y, height, width })
+              // console.log(`新窗口位置：(${x}, ${y}), 宽度：${width}, 高度：${height}`)
+              // console.log('renderer process send updated-window-info', { id, x, y, height, width })
             }
-
-          }
           resolve(scrcpyWindow)
         } else if (Date.now() - start >= timeout) {
           clearInterval(this.checkScrcpyWindowIntervalId)
           console.error('查找窗口超时')
           reject(new Error('查找窗口超时'))
-        } else {
-          console.log('未找到窗口, 继续查找')
         }
       }, checkInterval)
     })
@@ -214,8 +181,10 @@ class ScrcpyWindow extends EventEmitter {
 
   handleScrcpyWindowIsClose(window) {
     if (!window.isWindow()) {
+      console.log('start close window',Date.now())
       ipcRenderer.send('scrcpy-window-closed', { id: window.id })
       if (this.checkIsClosedIntervalId || this.checkScrcpyWindowIntervalId) {
+        this.window = null
         clearInterval(this.checkScrcpyWindowIntervalId)
         clearInterval(this.checkIsClosedIntervalId) // 清除定时器
 
@@ -245,9 +214,9 @@ class ScrcpyWindow extends EventEmitter {
         this.handleScrcpyWindowIsClose(this.window)
       }
       if (this.window) {
-        this.checkScrcpyWindowBound('Bounds') // 第二次checkScrcpyWindow，定时器可能起冲突
+        this.checkScrcpyWindowBound() // 第二次checkScrcpyWindow，定时器可能起冲突
           .then((window) => {
-            this.window = window
+            this.window = window // 更新窗口
           })
           .catch((error) => {
             console.error('窗口检查失败', error)
@@ -412,7 +381,7 @@ addContext('scrcpy', () => {
       scrcpyWindowInstance
         .create(command)
         .then((window) => {
-          console.log('窗口已创建:', window)
+          // console.log('窗口已创建:', window)
           scrcpyWindowInstance.startWindowCheck() // 启动窗口检查 确保检查的是最新窗口
           resolve(window)
         })
