@@ -84,8 +84,8 @@ class ScrcpyWindow extends EventEmitter {
             console.error(`exec error: ${error}`)
             reject(error)
           }
-          console.log(`stdout: ${stdout}`)
-          console.error(`stderr: ${stderr}`)
+          // console.log(`stdout: ${stdout}`)
+          //console.error(`stderr: ${stderr}`)
         }
       )
 
@@ -106,11 +106,12 @@ class ScrcpyWindow extends EventEmitter {
   async checkScrcpyWindow() {
     return new Promise((resolve, reject) => {
       const start = Date.now()
-      const checkInterval =  500 // 每隔500毫秒检查一次,如果是位置就间隔0,已经有1000毫秒的间隔了
+      const checkInterval =  500 // 每隔500毫秒检查一次
       const timeout = 10000 // 最大等待时间10秒
 
       const checkScrcpyWindowIntervalId = setInterval(() => {
         let windows = windowManager.getWindows()
+        // 查找窗口
         const scrcpyWindow = windows.find((window) => window.getTitle() === 'Test-Device')
 
         if (scrcpyWindow) {
@@ -125,7 +126,7 @@ class ScrcpyWindow extends EventEmitter {
           resolve(scrcpyWindow)
         } else if (Date.now() - start >= timeout) {
           clearInterval(checkScrcpyWindowIntervalId)
-          console.error('查找窗口超时')
+          console.error('查找窗口超时aaa')
           reject(new Error('查找窗口超时'))
         } else {
           console.log('未找到窗口, 继续查找')
@@ -168,7 +169,7 @@ class ScrcpyWindow extends EventEmitter {
           resolve(scrcpyWindow)
         } else if (Date.now() - start >= timeout) {
           clearInterval(this.checkScrcpyWindowIntervalId)
-          console.error('查找窗口超时')
+          console.error('查找窗口超时bbb')
           reject(new Error('查找窗口超时'))
         }
       }, checkInterval)
@@ -209,7 +210,7 @@ class ScrcpyWindow extends EventEmitter {
     const checkInterval = 1000 // 每隔1000毫秒检查一次 // TODO 能否改为更底层的调用方式（Windows自带api）
 
     this.checkIsClosedIntervalId = setInterval(() => {
-      if (!this.window || !this.window.isWindow()) {
+      if (!this.window.isWindow()) {
         //this.emit('checkWindowClose');
         this.handleScrcpyWindowIsClose(this.window)
       }
