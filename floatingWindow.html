@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+    #triangle {
+      width: 0;
+      height: 0;
+      border-top: 30px solid transparent;
+      border-bottom: 30px solid transparent;
+      border-left: 30px solid #3498db; /* 使用现代的蓝色 */
+      cursor: pointer;
+      transition: all 0.3s ease; /* 添加平滑过渡效果 */
+      border-radius: 5px; /* 添加圆角 */
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* 添加阴影效果 */
+    }
+
+    #triangle:hover {
+      border-left-color: #2980b9; /* 悬停时颜色变深 */
+      transform: scale(1.1); /* 悬停时放大 */
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3); /* 悬停时增加阴影 */
+    }
+  </style>
+</head>
+<body>
+<div id="triangle"></div>
+<script>
+  const { ipcRenderer } = require('electron');
+
+  let originalContent = '';
+
+  document.getElementById('triangle').addEventListener('click', () => {
+    ipcRenderer.send('toggle-expand');
+  });
+
+  // 使用事件委托绑定事件监听器
+  document.body.addEventListener('click', (event) => {
+    if (event.target && event.target.id === 'collapse') {
+      console.log("collapse clicked");
+      ipcRenderer.send('toggle-collapse');
+    }
+  });
+
+  ipcRenderer.on('collapse-window',(event,data)=>{
+    document.body.innerHTML = originalContent;
+    document.getElementById('triangle').style.display = 'block'; // 恢复显示
+    // 重新绑定事件监听器
+    document.getElementById('triangle').addEventListener('click', () => {
+      ipcRenderer.send('toggle-expand');
+    });
+  })
+
+  ipcRenderer.on('expand-window', (event, data) => {
+    // 保存原始内容
+    originalContent = document.body.innerHTML;
+    console.log({ originalContent });
+
+    document.getElementById('triangle').style.display = 'none';
+    document.body.innerHTML = `
+      <div class="aside">
+        <div class="navbar">
+          <a href="#"><i class="fas fa-arrow-left"></i></a> <!-- 回退图标 -->
+          <a href="#"><i class="fas fa-home"></i></a> <!-- 桌面图标 -->
+          <a href="#"><i class="fas fa-th-large"></i></a> <!-- 后台图标 -->
+        </div>
+        <div>
+          <a href="#" ><i id="collapse" class="fas fa-arrow-left"></i></a>
+        </div>
+      </div>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+      <style>
+        body, html {
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100%;
+          background: #f8f9fa;
+        }
+        .aside {
+          height: 100%;
+          padding-top: 40px;
+          display: flex;
+          justify-content: flex-start;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+        }
+        .navbar {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+        }
+        .navbar a {
+          text-decoration: none;
+          color: #333;
+          font-size: 24px;
+        }
+        .navbar a:hover {
+          color: #007bff;
+        }
+      </style>
+    `;
+  });
+</script>
+</body>
+</html>
