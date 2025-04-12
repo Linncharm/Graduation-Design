@@ -87,6 +87,8 @@ showTips()
 async function showTips() {
   const { scrcpyPath } = window.electron?.configs || {}
 
+  console.log('scrcpyPath', scrcpyPath, window.electron)
+
   if (scrcpyPath) {
     return false
   }

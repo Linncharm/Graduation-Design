@@ -38,7 +38,6 @@
 </template>
 
 <script setup>
-import { useThemeStore } from '$/store/index.js'
 import { sleep } from '$/utils/index.js'
 import { ElMessage } from 'element-plus'
 import VueCommand, {
@@ -49,8 +48,6 @@ import VueCommand, {
 import { useAdb } from './composables/adb-async.js'
 import { useScrcpy } from './composables/scrcpy.js'
 import 'vue-command/dist/vue-command.css'
-
-const themeStore = useThemeStore()
 
 const loading = ref(false)
 const visible = ref(false)
