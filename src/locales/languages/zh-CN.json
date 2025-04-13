@@ -392,5 +392,18 @@
   "about.update-downloaded.confirm": "更新",
   "about.update-available.title": "发现新版本",
   "about.update-available.confirm": "更新",
-  "about.update.progress": "正在更新中"
+  "about.update.progress": "正在更新中",
+  "user.title": "用户管理",
+  "user.login": "登录",
+  "user.logout": "退出登录",
+  "user.username": "用户名",
+  "user.password": "密码",
+  "user.loginSuccess": "登录成功",
+  "user.loginFailed": "登录失败",
+  "user.logoutSuccess": "已退出登录",
+  "user.logoutFailed": "退出登录失败",
+  "user.register":"注册",
+  "user.confirmPassword": "确认密码",
+  "user.registerSuccess":"注册成功",
+  "user.registerFailed":"注册失败"
 }

@@ -48,6 +48,8 @@ import Device from './components/Device/index.vue'
 import Preference from './components/Preference/index.vue'
 import Quick from './components/Quick/index.vue'
 
+import User from './components/User/index.vue'
+
 const locale = computed(() => {
   const i18nLocale = i18n.global.locale.value
 
@@ -67,6 +69,11 @@ const tabsModel = [
     value: 'Preference',
     component: Preference,
   },
+  {
+    label: 'user.title',
+    value: 'User',
+    component: User,
+  }
 ]
 
 const activeTab = ref('Device')
@@ -134,7 +141,7 @@ async function onTabChange(value) {
     return false
   }
 
-  if (['Device', 'Preference'].includes(value)) {
+  if (['Device', 'Preference','User'].includes(value)) {
     reRender()
   }
 

@@ -24,6 +24,8 @@ export const usePreferenceStore = defineStore({
       window.appStore.get('scrcpy.deviceScope') || 'global',
     )
 
+    const userScope = window.appStore.get('scrcpy.userScope') || 'default'
+
     const recordKeys = Object.values(model?.record?.children || {}).map(
       item => item.field,
     )
@@ -40,6 +42,7 @@ export const usePreferenceStore = defineStore({
       model: cloneDeep(model),
       data: { ...getDefaultData() },
       deviceScope,
+      userScope,
       excludeKeys: [
         '--display-overlay',
         '--camera',
@@ -58,8 +61,12 @@ export const usePreferenceStore = defineStore({
   actions: {
     getDefaultData,
 
-    init(scope = this.deviceScope) {
-      this.data = this.getData(scope)
+    init(scope = this.deviceScope, userScope = this.userScope) {
+      if (userScope && userScope !== 'global') {
+        this.userScope = userScope
+      }
+
+      this.data = this.getData(scope, this.userScope)
       return this.data
     },
     setScope(value) {
@@ -67,7 +74,16 @@ export const usePreferenceStore = defineStore({
       window.appStore.set('scrcpy.deviceScope', this.deviceScope)
       this.init()
     },
-    setData(data, scope = this.deviceScope) {
+    setUserScope(username) {
+      this.userScope = username
+      window.appStore.set('scrcpy.userScope', username)
+      window.appStore.set('user.userScope', username)
+      this.init()
+    },
+    getUserScope() {
+      return window.appStore.get('scrcpy.userScope') || 'global'
+    },
+    setData(data, scope = this.deviceScope, userScope = this.userScope) {
       const pickData = pickBy(
         data,
         value => !!value || typeof value === 'number',
@@ -81,28 +97,48 @@ export const usePreferenceStore = defineStore({
         delete pickData.scrcpyPath
       }
 
-      setStoreData(pickData, replaceIP(scope))
+      setStoreData(pickData, replaceIP(scope), userScope)
 
-      this.init(scope)
+      this.init(scope, userScope)
     },
-    reset(scope) {
-      if (!scope) {
+    reset(scope, userScope = this.userScope) {
+      if (!scope && !userScope) {
         window.appStore.clear()
-      }
-      else {
+      } else {
         const fields = getTopFields()
 
         fields.forEach((key) => {
           if (key === 'scrcpy') {
-            this.deviceScope = scope
-            window.appStore.set(`scrcpy.${replaceIP(scope)}`, {})
+            if (userScope && userScope !== 'global') {
+              // 重置用户特定的 scrcpy 配置
+              const userScrcpy = window.appStore.get(`user.${userScope}.scrcpy`) || {}
+              if (scope) {
+                userScrcpy[scope] = {}
+              } else {
+                userScrcpy['global'] = {}
+              }
+              window.appStore.set(`user.${userScope}.scrcpy`, userScrcpy)
+            } else {
+              // 重置默认的 scrcpy 配置
+              this.deviceScope = scope || 'global'
+              window.appStore.set(`scrcpy.${replaceIP(scope || 'global')}`, {})
+            }
             return false
           }
-          window.appStore.set(key, {})
+
+          if (userScope && userScope !== 'global') {
+            // 重置用户特定的配置
+            const userConfig = window.appStore.get(`user.${userScope}`) || {}
+            userConfig[key] = {}
+            window.appStore.set(`user.${userScope}`, userConfig)
+          } else {
+            // 重置默认配置
+            window.appStore.set(key, {})
+          }
         })
       }
 
-      this.init()
+      this.init(scope, userScope)
     },
     resetDeps(type) {
       switch (type) {
@@ -119,11 +155,11 @@ export const usePreferenceStore = defineStore({
       }
       this.init()
     },
-    getData(scope = this.deviceScope) {
+    getData(scope = this.deviceScope, userScope = this.userScope) {
       let value = mergeConfig(getDefaultData(), getStoreData())
 
       if (scope !== 'global') {
-        value = mergeConfig(value, getStoreData(replaceIP(scope)))
+        value = mergeConfig(value, getStoreData(replaceIP(scope), userScope))
       }
 
       return value
