@@ -113,14 +113,41 @@
         <div class="mb-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
           <h3 class="text-lg font-semibold mb-4">配置差异对比</h3>
           <div class="config-diff">
-            <el-table :data="configDiffData" style="width: 100%" border>
-              <el-table-column prop="configItem" label="配置项" width="180" />
+            <el-table :data="splitConfigDiffData" style="width: 100%" border>
+              <!-- 第一组列：显示左半部分数据 -->
+              <el-table-column label="配置项" width="180">
+                <template #default="{ row }">
+                  {{ row.left?.configItem || '' }}
+                </template>
+              </el-table-column>
               <el-table-column label="用户配置" min-width="200">
                 <template #default="{ row }">
-                  <div class="flex flex-col gap-2">
-                    <div v-for="(value, username) in row.userConfigs" :key="username"
-                         class="flex items-center gap-2 p-2 rounded"
-                         :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
+                  <div v-if="row.left" class="flex flex-col gap-2">
+                    <div v-for="(value, username) in row.left.userConfigs" :key="username"
+                        class="flex items-center gap-2 p-2 rounded"
+                        :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
+                      <el-avatar :size="24" :src="userStore.getUserAvatar(username)" />
+                      <span class="font-medium">{{ username }}</span>
+                      <el-tag size="small" :type="getConfigTagType(value)">
+                        {{ formatConfigValue(value) }}
+                      </el-tag>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <!-- 第二组列：显示右半部分数据 -->
+              <el-table-column label="配置项" width="180">
+                <template #default="{ row }">
+                  {{ row.right?.configItem || '' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="用户配置" min-width="200">
+                <template #default="{ row }">
+                  <div v-if="row.right" class="flex flex-col gap-2">
+                    <div v-for="(value, username) in row.right.userConfigs" :key="username"
+                        class="flex items-center gap-2 p-2 rounded"
+                        :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
                       <el-avatar :size="24" :src="userStore.getUserAvatar(username)" />
                       <span class="font-medium">{{ username }}</span>
                       <el-tag size="small" :type="getConfigTagType(value)">
@@ -393,6 +420,25 @@ export default {
       return diffData
     })
 
+    // 将原始数据拆分为左右两部分
+    const splitConfigDiffData = computed(() => {
+      const rows = []
+      const totalItems = configDiffData.value.length
+      const firstHalfLength = Math.ceil(totalItems / 2)
+
+      for (let i = 0; i < firstHalfLength; i++) {
+        const leftItem = configDiffData.value[i]
+        const rightItem = configDiffData.value[i + firstHalfLength]
+
+        rows.push({
+          left: leftItem,
+          right: rightItem
+        })
+      }
+
+      return rows
+    })
+
     // 获取嵌套对象的值
     const getNestedValue = (obj, path) => {
       return path.split('.').reduce((current, key) => {
@@ -471,6 +517,7 @@ export default {
       handleDescriptionBlur,
       configDiffData,
       formatConfigValue,
+      splitConfigDiffData,
       getConfigTagType
     }
   },
@@ -598,7 +645,6 @@ export default {
     },
 
     handleSave() {
-      this.preferenceStore.init(this.deviceScope, this.currentUser)
       this.preferenceStore.setData(this.preferenceData, this.deviceScope, this.currentUser)
       this.$message({
         message: `${this.currentUser} ${this.$t('preferences.config.save.placeholder')}`,
