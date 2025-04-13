@@ -84,6 +84,7 @@ export const usePreferenceStore = defineStore({
       return window.appStore.get('scrcpy.userScope') || 'global'
     },
     getUserConfig(username) {
+      this.init(this.deviceScope, username)
       return window.appStore.get(`user.${username}`) || {}
     },
     setData(data, scope = this.deviceScope, userScope = this.userScope) {

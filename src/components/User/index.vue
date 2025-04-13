@@ -598,8 +598,8 @@ export default {
     },
 
     handleSave() {
+      this.preferenceStore.init(this.deviceScope, this.currentUser)
       this.preferenceStore.setData(this.preferenceData, this.deviceScope, this.currentUser)
-
       this.$message({
         message: `${this.currentUser} ${this.$t('preferences.config.save.placeholder')}`,
         type: 'success',
