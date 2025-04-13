@@ -42,11 +42,11 @@
             添加账号
           </el-button>
         </div>
-        <el-button-group class="flex-none">
+        <!-- <el-button-group class="flex-none">
           <el-button type="" icon="RefreshRight" plain @click="handleReset">
             {{ $t('preferences.config.reset.name') }}
           </el-button>
-        </el-button-group>
+        </el-button-group> -->
       </div>
 
       <div class="pr-2 pt-4 flex-1 h-0 overflow-auto">
@@ -54,31 +54,40 @@
         <div class="grid grid-cols-2 gap-6 mb-8">
           <!-- 用户信息展示部分 -->
           <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-            <div class="flex flex-col items-center">
-              <el-avatar :size="100" :src="userStore.userInfo.avatar" />
-              <h2 class="mt-4 text-2xl font-bold">{{ userStore.userInfo.username }}</h2>
-              <div class="mt-2 w-full">
-                <div class="user-description">
-                  <el-input
-                    v-if="isEditingDescription"
-                    v-model="editingDescription"
-                    type="textarea"
-                    :rows="2"
-                    placeholder="请输入个人描述"
-                    @blur="handleDescriptionBlur"
-                  />
-                  <div v-else class="description-text" @click="startEditingDescription">
-                    {{ userStore.userInfo.description || '点击添加个人描述' }}
-                  </div>
+            <div class="flex items-center gap-4">
+              <div class="relative group">
+                <el-avatar :size="100" :src="userStore.userInfo.avatar" />
+                <div class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer"
+                     @click="handleAvatarClick">
+                  <el-icon class="text-white text-xl"><Upload /></el-icon>
                 </div>
-                <div class="mt-4 grid grid-cols-1 gap-4 text-sm text-gray-500">
-                  <div class="flex items-center gap-2">
-                    <el-icon><Calendar /></el-icon>
-                    <span>创建时间：{{ formatDate(userStore.userInfo.createdAt) }}</span>
+                <input type="file" ref="avatarInput" class="hidden" accept="image/*" @change="handleAvatarChange" />
+              </div>
+              <div class="flex-1">
+                <h2 class="text-2xl font-bold">{{ userStore.userInfo.username }}</h2>
+                <div class="mt-2 w-full">
+                  <div class="user-description">
+                    <el-input
+                      v-if="isEditingDescription"
+                      v-model="editingDescription"
+                      type="textarea"
+                      :rows="2"
+                      placeholder="请输入个人描述"
+                      @blur="handleDescriptionBlur"
+                    />
+                    <div v-else class="description-text" @click="startEditingDescription">
+                      {{ userStore.userInfo.description || '点击添加个人描述' }}
+                    </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <el-icon><Timer /></el-icon>
-                    <span>最近登录：{{ formatDate(userStore.userInfo.lastLoginAt) }}</span>
+                  <div class="mt-4 grid grid-cols-1 gap-4 text-sm text-gray-500">
+                    <div class="flex items-center gap-2">
+                      <el-icon><Calendar /></el-icon>
+                      <span>创建时间：{{ formatDate(userStore.userInfo.createdAt) }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <el-icon><Timer /></el-icon>
+                      <span>最近登录：{{ formatDate(userStore.userInfo.lastLoginAt) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -117,7 +126,9 @@
               <!-- 第一组列：显示左半部分数据 -->
               <el-table-column label="配置项" width="180">
                 <template #default="{ row }">
-                  {{ row.left?.configItem || '' }}
+                  {{ $t(row.left?.configItem.label || '') }}
+                  {{ "设备id" }}
+                  {{ $t(row.left?.configItem.deviceId || '') }}
                 </template>
               </el-table-column>
               <el-table-column label="用户配置" min-width="200">
@@ -128,8 +139,8 @@
                         :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
                       <el-avatar :size="24" :src="userStore.getUserAvatar(username)" />
                       <span class="font-medium">{{ username }}</span>
-                      <el-tag size="small" :type="getConfigTagType(value)">
-                        {{ formatConfigValue(value) }}
+                      <el-tag size="small" :type="getConfigTagType(value, row.left.configItem)">
+                        {{ formatConfigValue(value, row.left.configItem) }}
                       </el-tag>
                     </div>
                   </div>
@@ -139,7 +150,9 @@
               <!-- 第二组列：显示右半部分数据 -->
               <el-table-column label="配置项" width="180">
                 <template #default="{ row }">
-                  {{ row.right?.configItem || '' }}
+                  {{ $t(row.right?.configItem.label || '') }}
+                  {{ row.right?.configItem.label ?"设备id" : '' }}
+                  {{ $t(row.right?.configItem.deviceId || '') }}
                 </template>
               </el-table-column>
               <el-table-column label="用户配置" min-width="200">
@@ -150,8 +163,8 @@
                         :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
                       <el-avatar :size="24" :src="userStore.getUserAvatar(username)" />
                       <span class="font-medium">{{ username }}</span>
-                      <el-tag size="small" :type="getConfigTagType(value)">
-                        {{ formatConfigValue(value) }}
+                      <el-tag size="small" :type="getConfigTagType(value, row.right.configItem)">
+                        {{ formatConfigValue(value, row.right.configItem) }}
                       </el-tag>
                     </div>
                   </div>
@@ -238,14 +251,17 @@ import PreferenceForm from './components/PreferenceForm/index.vue'
 import ScopeSelect from './components/ScopeSelect/index.vue'
 import { computed, ref, reactive } from 'vue'
 import { t } from '$/locales'
-import { Calendar, Timer } from '@element-plus/icons-vue'
+import { Calendar, Timer, Upload } from '@element-plus/icons-vue'
+
+import * as model from '$/store/preference/model/index.js'
 
 export default {
   components: {
     ScopeSelect,
     PreferenceForm,
     Calendar,
-    Timer
+    Timer,
+    Upload,
   },
   setup() {
     const preferenceStore = usePreferenceStore()
@@ -261,6 +277,7 @@ export default {
     const isRegister = ref(false)
     const isEditingDescription = ref(false)
     const editingDescription = ref('')
+    const avatarInput = ref(null)
 
     const formData = reactive({
       username: '',
@@ -361,13 +378,13 @@ export default {
     const configDiffData = computed(() => {
       const diffData = []
       const allUsers = userStore.userList.map(user => user.username)
-      console.log('所有用户:', allUsers)
+      //console.log('所有用户:', allUsers)
 
       // 获取所有配置项
       const configItems = new Set()
       allUsers.forEach(username => {
         const userConfig = preferenceStore.getUserConfig(username)
-        console.log(`用户 ${username} 的配置:`, userConfig)
+        //console.log(`用户 ${username} 的配置:`, userConfig)
         if (userConfig) {
           // 遍历common配置
           Object.entries(userConfig.common || {}).forEach(([key, value]) => {
@@ -381,7 +398,7 @@ export default {
           })
         }
       })
-      console.log('所有配置项:', Array.from(configItems))
+      //console.log('所有配置项:', Array.from(configItems))
 
       // 对每个配置项，收集所有用户的值
       configItems.forEach(item => {
@@ -394,29 +411,34 @@ export default {
           if (userConfig) {
             const value = getNestedValue(userConfig, item)
             userConfigs[username] = value
-            console.log(`配置项 ${item} - 用户 ${username} 的值:`, value)
+            //console.log(`配置项 ${item} - 用户 ${username} 的值:`, value)
 
             if (firstValue === null) {
               firstValue = value
             } else if (JSON.stringify(firstValue) !== JSON.stringify(value)) {
               hasDiff = true
-              console.log(`发现差异 - 配置项: ${item}, 值1: ${firstValue}, 值2: ${value}`)
+              //console.log(`发现差异 - 配置项: ${item}, 值1: ${firstValue}, 值2: ${value}`)
             }
           }
         })
 
         // 只添加有差异的配置项
         if (hasDiff) {
-          console.log(`添加差异配置项: ${item}`, userConfigs)
+          //console.log(`添加差异配置项: ${item}`, userConfigs)
           diffData.push({
-            configItem: formatConfigItemName(item),
+            configItem: {
+              label: formatConfigItemName(item).label,
+              deviceId: formatConfigItemName(item).deviceId,
+              type: formatConfigItemName(item).type,
+              placeholder: formatConfigItemName(item).placeholder,
+            },
             userConfigs,
             category: item.split('.')[0]
           })
         }
       })
 
-      console.log('最终差异数据:', diffData)
+      //console.log('最终差异数据:', diffData)
       return diffData
     })
 
@@ -449,28 +471,66 @@ export default {
     // 格式化配置项名称
     const formatConfigItemName = (item) => {
       const [section, ...rest] = item.split('.')
+
+      // 处理空值情况
+      if (!item || !section) {
+        return '未知配置项'
+      }
+
       if (section === 'common') {
         const [key] = rest
-        const keyMap = {
-          theme: '主题',
-          language: '语言',
-          savePath: '保存路径'
+        // 从model中获取common配置项的名称
+        const commonConfig = model.common.children?.[key]
+        if (commonConfig) {
+          return commonConfig.label || commonConfig.placeholder || key
         }
-        return keyMap[key] || key
+        return key
       } else if (section === 'scrcpy') {
         const [deviceId, configKey] = rest
-        const keyMap = {
-          '--max-size': '最大尺寸',
-          '--bit-rate': '比特率',
-          '--max-fps': '最大帧率'
+        // 遍历所有model配置项，查找匹配的field
+        for (const category in model) {
+          const categoryConfig = model[category]
+          for (const configName in categoryConfig) {
+            const config = categoryConfig[configName]
+            for (const [key, item] of Object.entries(config.children)) {
+              if (item.field === configKey) {
+                return {
+                  label: `${item.label || item.placeholder || configKey}`,
+                  deviceId: deviceId,
+                  type: item.type,
+                  placeholder: item.placeholder,
+                }
+              }
+            }
+          }
         }
-        return `${keyMap[configKey] || configKey} (设备: ${deviceId})`
       }
       return item
     }
 
     // 获取配置标签类型
-    const getConfigTagType = (value) => {
+    const getConfigTagType = (value, configItem) => {
+      // 如果配置项为空，返回默认类型
+      if (value === undefined || value === null) {
+        return 'info'
+      }
+
+      // 根据配置项的类型判断
+      if (configItem) {
+        const { type, placeholder } = configItem
+        if (type === 'Switch') {
+          return value ? 'success' : 'danger'
+        } else if (type === 'Select') {
+          if (value === placeholder) {
+            return 'info'
+          }
+          return 'success'
+        } else if (type === 'InputNumber' || type === 'Input') {
+          return 'success'
+        }
+      }
+
+      // 默认处理
       if (typeof value === 'boolean') {
         return value ? 'success' : 'danger'
       }
@@ -482,11 +542,30 @@ export default {
         if (value.includes('dark')) return 'info'
         if (value.includes('system')) return 'success'
       }
-      return ''
+      return 'info'
     }
 
     // 格式化配置值
-    const formatConfigValue = (value) => {
+    const formatConfigValue = (value, configItem) => {
+      // 如果配置项为空，返回placeholder
+      if (value === undefined || value === null) {
+        return "默认值"
+      }
+
+      // 根据配置项的类型判断
+      if (configItem) {
+        const { type, placeholder } = configItem
+        if (type === 'Switch') {
+          return value ? '开启' : '关闭'
+        } else if (type === 'Select') {
+          if (value === placeholder) {
+            return "默认值"
+          }
+          return value
+        }
+      }
+
+      // 默认处理
       if (typeof value === 'string') {
         if (value.includes('light')) return '浅色'
         if (value.includes('dark')) return '深色'
@@ -495,6 +574,42 @@ export default {
         if (value.includes('en-US')) return '英文'
       }
       return value
+    }
+
+    const handleAvatarClick = () => {
+      avatarInput.value?.click()
+    }
+
+    const handleAvatarChange = async (event) => {
+      const file = event.target.files[0]
+      if (!file) return
+
+      // 检查文件类型
+      if (!file.type.startsWith('image/')) {
+        ElMessage.error('请选择图片文件')
+        return
+      }
+
+      // 检查文件大小（限制为2MB）
+      if (file.size > 2 * 1024 * 1024) {
+        ElMessage.error('图片大小不能超过2MB')
+        return
+      }
+
+      try {
+        // 创建文件预览URL
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const avatarUrl = e.target.result
+          // 更新用户头像
+          userStore.updateUserAvatar(avatarUrl)
+          ElMessage.success('头像更新成功')
+        }
+        reader.readAsDataURL(file)
+      } catch (error) {
+        ElMessage.error('头像上传失败')
+        console.error('Avatar upload error:', error)
+      }
     }
 
     return {
@@ -518,7 +633,10 @@ export default {
       configDiffData,
       formatConfigValue,
       splitConfigDiffData,
-      getConfigTagType
+      getConfigTagType,
+      avatarInput,
+      handleAvatarClick,
+      handleAvatarChange,
     }
   },
   watch: {

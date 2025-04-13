@@ -197,6 +197,20 @@ export const useUserStore = defineStore('user', () => {
     return user?.avatar || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
   }
 
+  const updateUserAvatar = (avatarUrl) => {
+    if (!currentUser.value) return
+
+    const userIndex = localUsers.value.findIndex(u => u.username === currentUser.value)
+    if (userIndex !== -1) {
+      localUsers.value[userIndex].avatar = avatarUrl
+      // 更新currentUser和userInfo的avatar
+      const updatedUser = { ...localUsers.value[userIndex], avatar: avatarUrl }
+      currentUser.value = updatedUser
+      userInfo.value = updatedUser
+      saveLocalUsers()
+    }
+  }
+
   // 初始化
   initLocalUsers()
   checkLoginStatus()
@@ -214,6 +228,7 @@ export const useUserStore = defineStore('user', () => {
     switchUser,
     checkLoginStatus,
     updateUserDescription,
-    getUserAvatar
+    getUserAvatar,
+    updateUserAvatar
   }
 })
