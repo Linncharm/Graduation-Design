@@ -11,15 +11,6 @@
         />
       </div>
       <el-button-group class="flex-none">
-        <el-button type="" icon="Upload" plain @click="handleImport">
-          {{ $t('preferences.config.import.name') }}
-        </el-button>
-        <el-button type="" icon="Download" plain @click="handleExport">
-          {{ $t('preferences.config.export.name') }}
-        </el-button>
-        <el-button type="" icon="Edit" plain @click="handleEdit">
-          {{ $t('preferences.config.edit.name') }}
-        </el-button>
         <el-button type="" icon="RefreshRight" plain @click="handleReset">
           {{ $t('preferences.config.reset.name') }}
         </el-button>
@@ -32,6 +23,7 @@
         v-bind="{
           deviceScope,
         }"
+        :excludes="['audio', 'video', 'camera', 'device', 'window','display','input','record']"
       >
       </PreferenceForm>
     </div>

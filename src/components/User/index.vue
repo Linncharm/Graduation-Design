@@ -5,7 +5,6 @@
         class="mr-4 pb-2 flex items-center justify-between flex-none border-b border-gray-200 dark:border-gray-700"
       >
         <div class="flex flex-row gap-4">
-
           <el-select
             v-model="currentUser"
             class="ml-4 min-w-[4.75rem]"
@@ -34,29 +33,114 @@
           >
             退出登录
           </el-button>
+          <!-- 添加账号 -->
+          <el-button
+            class="ml-4"
+            type="primary"
+            @click="handleAddUser"
+          >
+            添加账号
+          </el-button>
         </div>
         <el-button-group class="flex-none">
-          <!-- <el-button type="" icon="Upload" plain @click="handleImport">
-            {{ $t('preferences.config.import.name') }}
-          </el-button>
-          <el-button type="" icon="Download" plain @click="handleExport">
-            {{ $t('preferences.config.export.name') }}
-          </el-button>
-          <el-button type="" icon="Edit" plain @click="handleEdit">
-            {{ $t('preferences.config.edit.name') }}
-          </el-button>
           <el-button type="" icon="RefreshRight" plain @click="handleReset">
             {{ $t('preferences.config.reset.name') }}
-          </el-button> -->
+          </el-button>
         </el-button-group>
       </div>
 
       <div class="pr-2 pt-4 flex-1 h-0 overflow-auto">
+        <!-- 用户信息和用户列表的左右布局 -->
+        <div class="grid grid-cols-2 gap-6 mb-8">
+          <!-- 用户信息展示部分 -->
+          <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+            <div class="flex flex-col items-center">
+              <el-avatar :size="100" :src="userStore.userInfo.avatar" />
+              <h2 class="mt-4 text-2xl font-bold">{{ userStore.userInfo.username }}</h2>
+              <div class="mt-2 w-full">
+                <div class="user-description">
+                  <el-input
+                    v-if="isEditingDescription"
+                    v-model="editingDescription"
+                    type="textarea"
+                    :rows="2"
+                    placeholder="请输入个人描述"
+                    @blur="handleDescriptionBlur"
+                  />
+                  <div v-else class="description-text" @click="startEditingDescription">
+                    {{ userStore.userInfo.description || '点击添加个人描述' }}
+                  </div>
+                </div>
+                <div class="mt-4 grid grid-cols-1 gap-4 text-sm text-gray-500">
+                  <div class="flex items-center gap-2">
+                    <el-icon><Calendar /></el-icon>
+                    <span>创建时间：{{ formatDate(userStore.userInfo.createdAt) }}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <el-icon><Timer /></el-icon>
+                    <span>最近登录：{{ formatDate(userStore.userInfo.lastLoginAt) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 用户列表展示 -->
+          <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+            <h3 class="text-lg font-semibold mb-4">用户列表</h3>
+            <div class="user-list h-[calc(100%-2.5rem)]">
+              <el-scrollbar>
+                <div
+                  v-for="user in userStore.userList"
+                  :key="user.username"
+                  class="user-list-item"
+                  :class="{ 'current-user': user.username === userStore.currentUser }"
+                  @click="handleUserChange(user.username)"
+                >
+                  <el-avatar :size="40" :src="user.avatar" />
+                  <div class="user-list-item-info">
+                    <span class="username">{{ user.username }}</span>
+                    <span class="last-login">最近登录：{{ formatDate(user.lastLoginAt) }}</span>
+                  </div>
+                  <el-tag v-if="user.username === userStore.currentUser" type="success" size="small">当前用户</el-tag>
+                </div>
+              </el-scrollbar>
+            </div>
+          </div>
+        </div>
+
+        <!-- 配置对比展示 -->
+        <div class="mb-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+          <h3 class="text-lg font-semibold mb-4">配置差异对比</h3>
+          <div class="config-diff">
+            <el-table :data="configDiffData" style="width: 100%" border>
+              <el-table-column prop="configItem" label="配置项" width="180" />
+              <el-table-column label="用户配置" min-width="200">
+                <template #default="{ row }">
+                  <div class="flex flex-col gap-2">
+                    <div v-for="(value, username) in row.userConfigs" :key="username"
+                         class="flex items-center gap-2 p-2 rounded"
+                         :class="{'bg-blue-50 dark:bg-blue-900': username === userStore.currentUser}">
+                      <el-avatar :size="24" :src="userStore.getUserAvatar(username)" />
+                      <span class="font-medium">{{ username }}</span>
+                      <el-tag size="small" :type="getConfigTagType(value)">
+                        {{ formatConfigValue(value) }}
+                      </el-tag>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+
+        <!-- 偏好设置表单 -->
         <PreferenceForm
           v-model="preferenceData"
           v-bind="{
             deviceScope,
           }"
+          :excludes="['common']"
         >
         </PreferenceForm>
       </div>
@@ -125,12 +209,16 @@ import { useUserStore } from '$/store/user/index.js'
 import { debounce } from 'lodash-es'
 import PreferenceForm from './components/PreferenceForm/index.vue'
 import ScopeSelect from './components/ScopeSelect/index.vue'
-import { computed } from 'vue'
+import { computed, ref, reactive } from 'vue'
+import { t } from '$/locales'
+import { Calendar, Timer } from '@element-plus/icons-vue'
 
 export default {
   components: {
     ScopeSelect,
     PreferenceForm,
+    Calendar,
+    Timer
   },
   setup() {
     const preferenceStore = usePreferenceStore()
@@ -144,6 +232,8 @@ export default {
     const formRef = ref(null)
     const loading = ref(false)
     const isRegister = ref(false)
+    const isEditingDescription = ref(false)
+    const editingDescription = ref('')
 
     const formData = reactive({
       username: '',
@@ -190,11 +280,39 @@ export default {
 
     const isLoggedIn = computed(() => userStore.isLoggedIn)
     const userList = computed(() => userStore.userList)
-    console.log(userList)
     const currentUser = computed({
       get: () => userStore.currentUser,
       set: (value) => userStore.switchUser(value)
     })
+
+    const formatDate = (dateString) => {
+      if (!dateString) return '未知'
+      const date = new Date(dateString)
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
+
+    const startEditingDescription = () => {
+      editingDescription.value = userStore.userInfo.description || ''
+      isEditingDescription.value = true
+    }
+
+    const handleDescriptionBlur = async () => {
+      if (editingDescription.value !== userStore.userInfo.description) {
+        try {
+          await userStore.updateUserDescription(userStore.userInfo.username, editingDescription.value)
+          ElMessage.success('个人描述更新成功')
+        } catch (error) {
+          ElMessage.error('更新个人描述失败：' + error.message)
+        }
+      }
+      isEditingDescription.value = false
+    }
 
     const onScopeChange = (value) => {
       preferenceStore.setUserScope(currentUser.value, value)
@@ -212,6 +330,127 @@ export default {
       preferenceStore.setUserScope(currentUser.value, 'global')
     }
 
+    // 提取配置差异数据
+    const configDiffData = computed(() => {
+      const diffData = []
+      const allUsers = userStore.userList.map(user => user.username)
+      console.log('所有用户:', allUsers)
+
+      // 获取所有配置项
+      const configItems = new Set()
+      allUsers.forEach(username => {
+        const userConfig = preferenceStore.getUserConfig(username)
+        console.log(`用户 ${username} 的配置:`, userConfig)
+        if (userConfig) {
+          // 遍历common配置
+          Object.entries(userConfig.common || {}).forEach(([key, value]) => {
+            configItems.add(`common.${key}`)
+          })
+          // 遍历scrcpy配置
+          Object.entries(userConfig.scrcpy || {}).forEach(([deviceId, deviceConfig]) => {
+            Object.keys(deviceConfig).forEach(key => {
+              configItems.add(`scrcpy.${deviceId}.${key}`)
+            })
+          })
+        }
+      })
+      console.log('所有配置项:', Array.from(configItems))
+
+      // 对每个配置项，收集所有用户的值
+      configItems.forEach(item => {
+        const userConfigs = {}
+        let hasDiff = false
+        let firstValue = null
+
+        allUsers.forEach(username => {
+          const userConfig = preferenceStore.getUserConfig(username)
+          if (userConfig) {
+            const value = getNestedValue(userConfig, item)
+            userConfigs[username] = value
+            console.log(`配置项 ${item} - 用户 ${username} 的值:`, value)
+
+            if (firstValue === null) {
+              firstValue = value
+            } else if (JSON.stringify(firstValue) !== JSON.stringify(value)) {
+              hasDiff = true
+              console.log(`发现差异 - 配置项: ${item}, 值1: ${firstValue}, 值2: ${value}`)
+            }
+          }
+        })
+
+        // 只添加有差异的配置项
+        if (hasDiff) {
+          console.log(`添加差异配置项: ${item}`, userConfigs)
+          diffData.push({
+            configItem: formatConfigItemName(item),
+            userConfigs,
+            category: item.split('.')[0]
+          })
+        }
+      })
+
+      console.log('最终差异数据:', diffData)
+      return diffData
+    })
+
+    // 获取嵌套对象的值
+    const getNestedValue = (obj, path) => {
+      return path.split('.').reduce((current, key) => {
+        return current ? current[key] : undefined
+      }, obj)
+    }
+
+    // 格式化配置项名称
+    const formatConfigItemName = (item) => {
+      const [section, ...rest] = item.split('.')
+      if (section === 'common') {
+        const [key] = rest
+        const keyMap = {
+          theme: '主题',
+          language: '语言',
+          savePath: '保存路径'
+        }
+        return keyMap[key] || key
+      } else if (section === 'scrcpy') {
+        const [deviceId, configKey] = rest
+        const keyMap = {
+          '--max-size': '最大尺寸',
+          '--bit-rate': '比特率',
+          '--max-fps': '最大帧率'
+        }
+        return `${keyMap[configKey] || configKey} (设备: ${deviceId})`
+      }
+      return item
+    }
+
+    // 获取配置标签类型
+    const getConfigTagType = (value) => {
+      if (typeof value === 'boolean') {
+        return value ? 'success' : 'danger'
+      }
+      if (typeof value === 'number') {
+        return 'info'
+      }
+      if (typeof value === 'string') {
+        if (value.includes('light')) return 'warning'
+        if (value.includes('dark')) return 'info'
+        if (value.includes('system')) return 'success'
+      }
+      return ''
+    }
+
+    // 格式化配置值
+    const formatConfigValue = (value) => {
+      if (typeof value === 'string') {
+        if (value.includes('light')) return '浅色'
+        if (value.includes('dark')) return '深色'
+        if (value.includes('system')) return '跟随系统'
+        if (value.includes('zh-CN')) return '中文'
+        if (value.includes('en-US')) return '英文'
+      }
+      return value
+    }
+
     return {
       preferenceStore,
       userStore,
@@ -224,7 +463,15 @@ export default {
       isLoggedIn,
       currentUser,
       isRegister,
-      userList
+      userList,
+      isEditingDescription,
+      editingDescription,
+      formatDate,
+      startEditingDescription,
+      handleDescriptionBlur,
+      configDiffData,
+      formatConfigValue,
+      getConfigTagType
     }
   },
   watch: {
@@ -354,7 +601,7 @@ export default {
       this.preferenceStore.setData(this.preferenceData, this.deviceScope, this.currentUser)
 
       this.$message({
-        message: this.$t('preferences.config.save.placeholder'),
+        message: `${this.currentUser} ${this.$t('preferences.config.save.placeholder')}`,
         type: 'success',
         grouping: true,
       })
@@ -378,6 +625,11 @@ export default {
         this.$message.error(error.message || '退出登录失败')
       }
     },
+
+    async handleAddUser() {
+      await this.userStore.logout()
+      this.isRegister = true
+    },
   },
 }
 </script>
@@ -389,5 +641,65 @@ export default {
 
 :deep(.el-collapse-item__arrow) {
   @apply w-2em;
+}
+
+.user-description {
+  @apply mt-4;
+}
+
+.description-text {
+  @apply p-2 rounded bg-gray-50 dark:bg-gray-700 cursor-pointer min-h-[60px] text-gray-600 dark:text-gray-300;
+}
+
+.description-text:hover {
+  @apply bg-gray-100 dark:bg-gray-600;
+}
+
+.user-list {
+  @apply space-y-2;
+}
+
+.user-list-item {
+  @apply flex items-center gap-3 p-3 rounded cursor-pointer transition-colors;
+}
+
+.user-list-item:hover {
+  @apply bg-gray-50 dark:bg-gray-700;
+}
+
+.user-list-item.current-user {
+  @apply bg-blue-50 dark:bg-blue-900;
+}
+
+.user-list-item-info {
+  @apply flex-1 flex flex-col;
+}
+
+.username {
+  @apply font-medium text-gray-900 dark:text-gray-100;
+}
+
+.last-login {
+  @apply text-sm text-gray-500 dark:text-gray-400;
+}
+
+.config-diff {
+  @apply overflow-x-auto;
+}
+
+:deep(.el-table) {
+  @apply bg-transparent;
+}
+
+:deep(.el-table__header) {
+  @apply bg-gray-50 dark:bg-gray-700;
+}
+
+:deep(.el-table__row) {
+  @apply bg-white dark:bg-gray-800;
+}
+
+:deep(.el-table__cell) {
+  @apply border-gray-200 dark:border-gray-700;
 }
 </style>

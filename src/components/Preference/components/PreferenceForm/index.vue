@@ -117,6 +117,7 @@ const preferenceData = defineModel('modelValue', {
 
 const preferenceStore = usePreferenceStore()
 
+// 只保留为common的配置
 const preferenceModel = computed(() =>
   omit(preferenceStore.model, props.excludes),
 )
