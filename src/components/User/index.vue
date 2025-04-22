@@ -55,7 +55,14 @@
           <!-- 用户信息展示部分 -->
           <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
             <div class="flex flex-col items-center">
-              <el-avatar :size="100" :src="userStore.userInfo.avatar" />
+              <div class="relative group">
+                <el-avatar :size="100" :src="userStore.userInfo.avatar" />
+                <div class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer"
+                     @click="handleAvatarClick">
+                  <el-icon class="text-white text-xl"><Upload /></el-icon>
+                </div>
+                <input type="file" ref="avatarInput" class="hidden" accept="image/*" @change="handleAvatarChange" />
+              </div>
               <h2 class="mt-4 text-2xl font-bold">{{ userStore.userInfo.username }}</h2>
               <div class="mt-2 w-full">
                 <div class="user-description">
@@ -211,14 +218,15 @@ import PreferenceForm from './components/PreferenceForm/index.vue'
 import ScopeSelect from './components/ScopeSelect/index.vue'
 import { computed, ref, reactive } from 'vue'
 import { t } from '$/locales'
-import { Calendar, Timer } from '@element-plus/icons-vue'
+import { Calendar, Timer, Upload } from '@element-plus/icons-vue'
 
 export default {
   components: {
     ScopeSelect,
     PreferenceForm,
     Calendar,
-    Timer
+    Timer,
+    Upload
   },
   setup() {
     const preferenceStore = usePreferenceStore()
@@ -234,6 +242,7 @@ export default {
     const isRegister = ref(false)
     const isEditingDescription = ref(false)
     const editingDescription = ref('')
+    const avatarInput = ref(null)
 
     const formData = reactive({
       username: '',
@@ -451,6 +460,53 @@ export default {
       return value
     }
 
+    const handleAvatarClick = () => {
+      avatarInput.value?.click()
+    }
+
+    const handleAvatarChange = async (event) => {
+      const file = event.target.files[0]
+      if (!file) return
+
+      // 检查文件类型
+      if (!file.type.startsWith('image/')) {
+        ElMessage.error('请选择图片文件')
+        return
+      }
+
+      // 检查文件大小（限制为2MB）
+      if (file.size > 2 * 1024 * 1024) {
+        ElMessage.error('图片大小不能超过2MB')
+        return
+      }
+
+      try {
+        // 创建文件预览URL
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          try {
+            const avatarUrl = e.target.result
+            console.log('Updating avatar for user:', userStore.currentUser)
+            console.log('User store methods:', Object.keys(userStore))
+            // 更新用户头像
+            if (typeof userStore.updateUserAvatar === 'function') {
+              userStore.updateUserAvatar(avatarUrl)
+              ElMessage.success('头像更新成功')
+            } else {
+              throw new Error('updateUserAvatar方法不存在')
+            }
+          } catch (error) {
+            console.error('Avatar update error:', error)
+            ElMessage.error('头像更新失败：' + error.message)
+          }
+        }
+        reader.readAsDataURL(file)
+      } catch (error) {
+        ElMessage.error('头像上传失败')
+        console.error('Avatar upload error:', error)
+      }
+    }
+
     return {
       preferenceStore,
       userStore,
@@ -471,7 +527,10 @@ export default {
       handleDescriptionBlur,
       configDiffData,
       formatConfigValue,
-      getConfigTagType
+      getConfigTagType,
+      avatarInput,
+      handleAvatarClick,
+      handleAvatarChange
     }
   },
   watch: {
@@ -598,6 +657,8 @@ export default {
     },
 
     handleSave() {
+
+      this.preferenceStore.init(this.deviceScope, this.currentUser)
       this.preferenceStore.setData(this.preferenceData, this.deviceScope, this.currentUser)
 
       this.$message({
