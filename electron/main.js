@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import remote from '@electron/remote/main'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, globalShortcut } from 'electron'
 import contextMenu from 'electron-context-menu'
 /** process.js 必须位于非依赖项的顶部 */
 import { isPackaged } from './helpers/process.js'
@@ -94,6 +94,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.viarotel.escrcpy')
+  globalShortcut.register('Alt+O', () => {
+    // 打开调试工具
+    mainWindow.webContents.openDevTools()
+  })
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -117,4 +121,5 @@ app.on('window-all-closed', () => {
   app.isQuiting = true
   app.quit()
   mainWindow = null
+  globalShortcut.unregisterAll()
 })

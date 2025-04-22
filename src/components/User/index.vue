@@ -658,7 +658,7 @@ export default {
 
     handleSave() {
 
-      this.preferenceStore.init(this.deviceScope, this.currentUser)
+      //this.preferenceStore.init(this.deviceScope, this.currentUser)
       this.preferenceStore.setData(this.preferenceData, this.deviceScope, this.currentUser)
 
       this.$message({
