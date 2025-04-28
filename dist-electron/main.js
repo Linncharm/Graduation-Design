@@ -26,24 +26,814 @@ var _validator, _encryptionKey, _options, _defaultValues;
 import { createRequire } from "node:module";
 import path, { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import electron, { BrowserWindow, app, shell as shell$1, ipcMain, dialog, nativeTheme, Tray, Menu } from "electron";
+import electron, { app, session, ipcMain, BrowserWindow, shell, dialog, nativeTheme, Tray, Menu } from "electron";
+import require$$0 from "events";
 import process$1 from "node:process";
+import stripAnsi from "strip-ansi";
 import emojiRegex from "emoji-regex";
 import fs from "node:fs";
 import extName from "ext-name";
 import { spawn } from "child_process";
 import fs$2 from "fs";
-import execa from "execa";
-import os, { userInfo } from "node:os";
+import fixPath from "fix-path";
+import { cloneDeep, isEqual } from "lodash-es";
 import log$1 from "electron-log/main.js";
 import { promisify, isDeepStrictEqual } from "node:util";
 import crypto from "node:crypto";
 import assert from "node:assert";
+import os from "node:os";
 import AjvModule from "ajv";
 import ajvFormatsModule from "ajv-formats";
 import semver from "semver";
 import which from "which";
 import fs$1 from "fs-extra";
+const is = {
+  dev: !app.isPackaged
+};
+const platform = {
+  isWindows: process.platform === "win32",
+  isMacOS: process.platform === "darwin",
+  isLinux: process.platform === "linux"
+};
+const electronApp = {
+  setAppUserModelId(id) {
+    if (platform.isWindows)
+      app.setAppUserModelId(is.dev ? process.execPath : id);
+  },
+  setAutoLaunch(auto) {
+    if (platform.isLinux)
+      return false;
+    const isOpenAtLogin = () => {
+      return app.getLoginItemSettings().openAtLogin;
+    };
+    if (isOpenAtLogin() !== auto) {
+      app.setLoginItemSettings({
+        openAtLogin: auto,
+        path: process.execPath
+      });
+      return isOpenAtLogin() === auto;
+    } else {
+      return true;
+    }
+  },
+  skipProxy() {
+    return session.defaultSession.setProxy({ mode: "direct" });
+  }
+};
+const optimizer = {
+  watchWindowShortcuts(window2, shortcutOptions) {
+    if (!window2)
+      return;
+    const { webContents: webContents2 } = window2;
+    const { escToCloseWindow = false, zoom = false } = shortcutOptions || {};
+    webContents2.on("before-input-event", (event, input) => {
+      if (input.type === "keyDown") {
+        if (!is.dev) {
+          if (input.code === "KeyR" && (input.control || input.meta))
+            event.preventDefault();
+        } else {
+          if (input.code === "F12") {
+            if (webContents2.isDevToolsOpened()) {
+              webContents2.closeDevTools();
+            } else {
+              webContents2.openDevTools({ mode: "undocked" });
+              console.log("Open dev tool...");
+            }
+          }
+        }
+        if (escToCloseWindow) {
+          if (input.code === "Escape" && input.key !== "Process") {
+            window2.close();
+            event.preventDefault();
+          }
+        }
+        if (!zoom) {
+          if (input.code === "Minus" && (input.control || input.meta))
+            event.preventDefault();
+          if (input.code === "Equal" && input.shift && (input.control || input.meta))
+            event.preventDefault();
+        }
+      }
+    });
+  },
+  registerFramelessWindowIpc() {
+    ipcMain.on("win:invoke", (event, action) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        if (action === "show") {
+          win.show();
+        } else if (action === "showInactive") {
+          win.showInactive();
+        } else if (action === "min") {
+          win.minimize();
+        } else if (action === "max") {
+          const isMaximized = win.isMaximized();
+          if (isMaximized) {
+            win.unmaximize();
+          } else {
+            win.maximize();
+          }
+        } else if (action === "close") {
+          win.close();
+        }
+      }
+    });
+  }
+};
+var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
+function getDefaultExportFromCjs(x) {
+  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+}
+var main$1 = {};
+var server = { exports: {} };
+var objectsRegistry = {};
+Object.defineProperty(objectsRegistry, "__esModule", { value: true });
+const getOwnerKey = (webContents2, contextId) => {
+  return `${webContents2.id}-${contextId}`;
+};
+class ObjectsRegistry {
+  constructor() {
+    this.nextId = 0;
+    this.storage = {};
+    this.owners = {};
+    this.electronIds = /* @__PURE__ */ new WeakMap();
+  }
+  // Register a new object and return its assigned ID. If the object is already
+  // registered then the already assigned ID would be returned.
+  add(webContents2, contextId, obj) {
+    const id = this.saveToStorage(obj);
+    const ownerKey = getOwnerKey(webContents2, contextId);
+    let owner = this.owners[ownerKey];
+    if (!owner) {
+      owner = this.owners[ownerKey] = /* @__PURE__ */ new Map();
+      this.registerDeleteListener(webContents2, contextId);
+    }
+    if (!owner.has(id)) {
+      owner.set(id, 0);
+      this.storage[id].count++;
+    }
+    owner.set(id, owner.get(id) + 1);
+    return id;
+  }
+  // Get an object according to its ID.
+  get(id) {
+    const pointer = this.storage[id];
+    if (pointer != null)
+      return pointer.object;
+  }
+  // Dereference an object according to its ID.
+  // Note that an object may be double-freed (cleared when page is reloaded, and
+  // then garbage collected in old page).
+  remove(webContents2, contextId, id) {
+    const ownerKey = getOwnerKey(webContents2, contextId);
+    const owner = this.owners[ownerKey];
+    if (owner && owner.has(id)) {
+      const newRefCount = owner.get(id) - 1;
+      if (newRefCount <= 0) {
+        owner.delete(id);
+        this.dereference(id);
+      } else {
+        owner.set(id, newRefCount);
+      }
+    }
+  }
+  // Clear all references to objects refrenced by the WebContents.
+  clear(webContents2, contextId) {
+    const ownerKey = getOwnerKey(webContents2, contextId);
+    const owner = this.owners[ownerKey];
+    if (!owner)
+      return;
+    for (const id of owner.keys())
+      this.dereference(id);
+    delete this.owners[ownerKey];
+  }
+  // Saves the object into storage and assigns an ID for it.
+  saveToStorage(object) {
+    let id = this.electronIds.get(object);
+    if (!id) {
+      id = ++this.nextId;
+      this.storage[id] = {
+        count: 0,
+        object
+      };
+      this.electronIds.set(object, id);
+    }
+    return id;
+  }
+  // Dereference the object from store.
+  dereference(id) {
+    const pointer = this.storage[id];
+    if (pointer == null) {
+      return;
+    }
+    pointer.count -= 1;
+    if (pointer.count === 0) {
+      this.electronIds.delete(pointer.object);
+      delete this.storage[id];
+    }
+  }
+  // Clear the storage when renderer process is destroyed.
+  registerDeleteListener(webContents2, contextId) {
+    const processHostId = contextId.split("-")[0];
+    const listener = (_, deletedProcessHostId) => {
+      if (deletedProcessHostId && deletedProcessHostId.toString() === processHostId) {
+        webContents2.removeListener("render-view-deleted", listener);
+        this.clear(webContents2, contextId);
+      }
+    };
+    webContents2.on("render-view-deleted", listener);
+  }
+}
+objectsRegistry.default = new ObjectsRegistry();
+var typeUtils = {};
+Object.defineProperty(typeUtils, "__esModule", { value: true });
+typeUtils.deserialize = typeUtils.serialize = typeUtils.isSerializableObject = typeUtils.isPromise = void 0;
+const electron_1 = electron;
+function isPromise(val) {
+  return val && val.then && val.then instanceof Function && val.constructor && val.constructor.reject && val.constructor.reject instanceof Function && val.constructor.resolve && val.constructor.resolve instanceof Function;
+}
+typeUtils.isPromise = isPromise;
+const serializableTypes = [
+  Boolean,
+  Number,
+  String,
+  Date,
+  Error,
+  RegExp,
+  ArrayBuffer
+];
+function isSerializableObject(value) {
+  return value === null || ArrayBuffer.isView(value) || serializableTypes.some((type) => value instanceof type);
+}
+typeUtils.isSerializableObject = isSerializableObject;
+const objectMap = function(source, mapper) {
+  const sourceEntries = Object.entries(source);
+  const targetEntries = sourceEntries.map(([key, val]) => [key, mapper(val)]);
+  return Object.fromEntries(targetEntries);
+};
+function serializeNativeImage(image) {
+  const representations = [];
+  const scaleFactors = image.getScaleFactors();
+  if (scaleFactors.length === 1) {
+    const scaleFactor = scaleFactors[0];
+    const size = image.getSize(scaleFactor);
+    const buffer = image.toBitmap({ scaleFactor });
+    representations.push({ scaleFactor, size, buffer });
+  } else {
+    for (const scaleFactor of scaleFactors) {
+      const size = image.getSize(scaleFactor);
+      const dataURL = image.toDataURL({ scaleFactor });
+      representations.push({ scaleFactor, size, dataURL });
+    }
+  }
+  return { __ELECTRON_SERIALIZED_NativeImage__: true, representations };
+}
+function deserializeNativeImage(value) {
+  const image = electron_1.nativeImage.createEmpty();
+  if (value.representations.length === 1) {
+    const { buffer, size, scaleFactor } = value.representations[0];
+    const { width, height } = size;
+    image.addRepresentation({ buffer, scaleFactor, width, height });
+  } else {
+    for (const rep of value.representations) {
+      const { dataURL, size, scaleFactor } = rep;
+      const { width, height } = size;
+      image.addRepresentation({ dataURL, scaleFactor, width, height });
+    }
+  }
+  return image;
+}
+function serialize(value) {
+  if (value && value.constructor && value.constructor.name === "NativeImage") {
+    return serializeNativeImage(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(serialize);
+  } else if (isSerializableObject(value)) {
+    return value;
+  } else if (value instanceof Object) {
+    return objectMap(value, serialize);
+  } else {
+    return value;
+  }
+}
+typeUtils.serialize = serialize;
+function deserialize(value) {
+  if (value && value.__ELECTRON_SERIALIZED_NativeImage__) {
+    return deserializeNativeImage(value);
+  } else if (Array.isArray(value)) {
+    return value.map(deserialize);
+  } else if (isSerializableObject(value)) {
+    return value;
+  } else if (value instanceof Object) {
+    return objectMap(value, deserialize);
+  } else {
+    return value;
+  }
+}
+typeUtils.deserialize = deserialize;
+var getElectronBinding$1 = {};
+Object.defineProperty(getElectronBinding$1, "__esModule", { value: true });
+getElectronBinding$1.getElectronBinding = void 0;
+const getElectronBinding = (name) => {
+  if (process._linkedBinding) {
+    return process._linkedBinding("electron_common_" + name);
+  } else if (process.electronBinding) {
+    return process.electronBinding(name);
+  } else {
+    return null;
+  }
+};
+getElectronBinding$1.getElectronBinding = getElectronBinding;
+server.exports;
+(function(module, exports) {
+  var __importDefault = commonjsGlobal && commonjsGlobal.__importDefault || function(mod) {
+    return mod && mod.__esModule ? mod : { "default": mod };
+  };
+  Object.defineProperty(exports, "__esModule", { value: true });
+  exports.initialize = exports.isInitialized = exports.enable = exports.isRemoteModuleEnabled = void 0;
+  const events_1 = require$$0;
+  const objects_registry_1 = __importDefault(objectsRegistry);
+  const type_utils_1 = typeUtils;
+  const electron_12 = electron;
+  const get_electron_binding_1 = getElectronBinding$1;
+  const { Promise: Promise2 } = commonjsGlobal;
+  const v8Util = get_electron_binding_1.getElectronBinding("v8_util");
+  const hasWebPrefsRemoteModuleAPI = (() => {
+    var _a, _b;
+    const electronVersion = Number((_b = (_a = process.versions.electron) === null || _a === void 0 ? void 0 : _a.split(".")) === null || _b === void 0 ? void 0 : _b[0]);
+    return Number.isNaN(electronVersion) || electronVersion < 14;
+  })();
+  const FUNCTION_PROPERTIES = [
+    "length",
+    "name",
+    "arguments",
+    "caller",
+    "prototype"
+  ];
+  const rendererFunctionCache = /* @__PURE__ */ new Map();
+  const finalizationRegistry = new FinalizationRegistry((fi) => {
+    const mapKey = fi.id[0] + "~" + fi.id[1];
+    const ref = rendererFunctionCache.get(mapKey);
+    if (ref !== void 0 && ref.deref() === void 0) {
+      rendererFunctionCache.delete(mapKey);
+      if (!fi.webContents.isDestroyed()) {
+        try {
+          fi.webContents.sendToFrame(fi.frameId, "REMOTE_RENDERER_RELEASE_CALLBACK", fi.id[0], fi.id[1]);
+        } catch (error) {
+          console.warn(`sendToFrame() failed: ${error}`);
+        }
+      }
+    }
+  });
+  function getCachedRendererFunction(id) {
+    const mapKey = id[0] + "~" + id[1];
+    const ref = rendererFunctionCache.get(mapKey);
+    if (ref !== void 0) {
+      const deref = ref.deref();
+      if (deref !== void 0)
+        return deref;
+    }
+  }
+  function setCachedRendererFunction(id, wc, frameId, value) {
+    const wr = new WeakRef(value);
+    const mapKey = id[0] + "~" + id[1];
+    rendererFunctionCache.set(mapKey, wr);
+    finalizationRegistry.register(value, {
+      id,
+      webContents: wc,
+      frameId
+    });
+    return value;
+  }
+  const locationInfo = /* @__PURE__ */ new WeakMap();
+  const getObjectMembers = function(object) {
+    let names = Object.getOwnPropertyNames(object);
+    if (typeof object === "function") {
+      names = names.filter((name) => {
+        return !FUNCTION_PROPERTIES.includes(name);
+      });
+    }
+    return names.map((name) => {
+      const descriptor = Object.getOwnPropertyDescriptor(object, name);
+      let type;
+      let writable = false;
+      if (descriptor.get === void 0 && typeof object[name] === "function") {
+        type = "method";
+      } else {
+        if (descriptor.set || descriptor.writable)
+          writable = true;
+        type = "get";
+      }
+      return { name, enumerable: descriptor.enumerable, writable, type };
+    });
+  };
+  const getObjectPrototype = function(object) {
+    const proto = Object.getPrototypeOf(object);
+    if (proto === null || proto === Object.prototype)
+      return null;
+    return {
+      members: getObjectMembers(proto),
+      proto: getObjectPrototype(proto)
+    };
+  };
+  const valueToMeta = function(sender, contextId, value, optimizeSimpleObject = false) {
+    let type;
+    switch (typeof value) {
+      case "object":
+        if (value instanceof Buffer) {
+          type = "buffer";
+        } else if (value && value.constructor && value.constructor.name === "NativeImage") {
+          type = "nativeimage";
+        } else if (Array.isArray(value)) {
+          type = "array";
+        } else if (value instanceof Error) {
+          type = "error";
+        } else if (type_utils_1.isSerializableObject(value)) {
+          type = "value";
+        } else if (type_utils_1.isPromise(value)) {
+          type = "promise";
+        } else if (Object.prototype.hasOwnProperty.call(value, "callee") && value.length != null) {
+          type = "array";
+        } else if (optimizeSimpleObject && v8Util.getHiddenValue(value, "simple")) {
+          type = "value";
+        } else {
+          type = "object";
+        }
+        break;
+      case "function":
+        type = "function";
+        break;
+      default:
+        type = "value";
+        break;
+    }
+    if (type === "array") {
+      return {
+        type,
+        members: value.map((el) => valueToMeta(sender, contextId, el, optimizeSimpleObject))
+      };
+    } else if (type === "nativeimage") {
+      return { type, value: type_utils_1.serialize(value) };
+    } else if (type === "object" || type === "function") {
+      return {
+        type,
+        name: value.constructor ? value.constructor.name : "",
+        // Reference the original value if it's an object, because when it's
+        // passed to renderer we would assume the renderer keeps a reference of
+        // it.
+        id: objects_registry_1.default.add(sender, contextId, value),
+        members: getObjectMembers(value),
+        proto: getObjectPrototype(value)
+      };
+    } else if (type === "buffer") {
+      return { type, value };
+    } else if (type === "promise") {
+      value.then(function() {
+      }, function() {
+      });
+      return {
+        type,
+        then: valueToMeta(sender, contextId, function(onFulfilled, onRejected) {
+          value.then(onFulfilled, onRejected);
+        })
+      };
+    } else if (type === "error") {
+      return {
+        type,
+        value,
+        members: Object.keys(value).map((name) => ({
+          name,
+          value: valueToMeta(sender, contextId, value[name])
+        }))
+      };
+    } else {
+      return {
+        type: "value",
+        value
+      };
+    }
+  };
+  const throwRPCError = function(message) {
+    const error = new Error(message);
+    error.code = "EBADRPC";
+    error.errno = -72;
+    throw error;
+  };
+  const removeRemoteListenersAndLogWarning = (sender, callIntoRenderer) => {
+    const location = locationInfo.get(callIntoRenderer);
+    let message = `Attempting to call a function in a renderer window that has been closed or released.
+Function provided here: ${location}`;
+    if (sender instanceof events_1.EventEmitter) {
+      const remoteEvents = sender.eventNames().filter((eventName) => {
+        return sender.listeners(eventName).includes(callIntoRenderer);
+      });
+      if (remoteEvents.length > 0) {
+        message += `
+Remote event names: ${remoteEvents.join(", ")}`;
+        remoteEvents.forEach((eventName) => {
+          sender.removeListener(eventName, callIntoRenderer);
+        });
+      }
+    }
+    console.warn(message);
+  };
+  const fakeConstructor = (constructor, name) => new Proxy(Object, {
+    get(target, prop, receiver) {
+      if (prop === "name") {
+        return name;
+      } else {
+        return Reflect.get(target, prop, receiver);
+      }
+    }
+  });
+  const unwrapArgs = function(sender, frameId, contextId, args) {
+    const metaToValue = function(meta) {
+      switch (meta.type) {
+        case "nativeimage":
+          return type_utils_1.deserialize(meta.value);
+        case "value":
+          return meta.value;
+        case "remote-object":
+          return objects_registry_1.default.get(meta.id);
+        case "array":
+          return unwrapArgs(sender, frameId, contextId, meta.value);
+        case "buffer":
+          return Buffer.from(meta.value.buffer, meta.value.byteOffset, meta.value.byteLength);
+        case "promise":
+          return Promise2.resolve({
+            then: metaToValue(meta.then)
+          });
+        case "object": {
+          const ret = meta.name !== "Object" ? /* @__PURE__ */ Object.create({
+            constructor: fakeConstructor(Object, meta.name)
+          }) : {};
+          for (const { name, value } of meta.members) {
+            ret[name] = metaToValue(value);
+          }
+          return ret;
+        }
+        case "function-with-return-value": {
+          const returnValue = metaToValue(meta.value);
+          return function() {
+            return returnValue;
+          };
+        }
+        case "function": {
+          const objectId = [contextId, meta.id];
+          const cachedFunction = getCachedRendererFunction(objectId);
+          if (cachedFunction !== void 0) {
+            return cachedFunction;
+          }
+          const callIntoRenderer = function(...args2) {
+            let succeed = false;
+            if (!sender.isDestroyed()) {
+              try {
+                succeed = sender.sendToFrame(frameId, "REMOTE_RENDERER_CALLBACK", contextId, meta.id, valueToMeta(sender, contextId, args2)) !== false;
+              } catch (error) {
+                console.warn(`sendToFrame() failed: ${error}`);
+              }
+            }
+            if (!succeed) {
+              removeRemoteListenersAndLogWarning(this, callIntoRenderer);
+            }
+          };
+          locationInfo.set(callIntoRenderer, meta.location);
+          Object.defineProperty(callIntoRenderer, "length", { value: meta.length });
+          setCachedRendererFunction(objectId, sender, frameId, callIntoRenderer);
+          return callIntoRenderer;
+        }
+        default:
+          throw new TypeError(`Unknown type: ${meta.type}`);
+      }
+    };
+    return args.map(metaToValue);
+  };
+  const isRemoteModuleEnabledImpl = function(contents) {
+    const webPreferences = contents.getLastWebPreferences() || {};
+    return webPreferences.enableRemoteModule != null ? !!webPreferences.enableRemoteModule : false;
+  };
+  const isRemoteModuleEnabledCache = /* @__PURE__ */ new WeakMap();
+  const isRemoteModuleEnabled = function(contents) {
+    if (hasWebPrefsRemoteModuleAPI && !isRemoteModuleEnabledCache.has(contents)) {
+      isRemoteModuleEnabledCache.set(contents, isRemoteModuleEnabledImpl(contents));
+    }
+    return isRemoteModuleEnabledCache.get(contents);
+  };
+  exports.isRemoteModuleEnabled = isRemoteModuleEnabled;
+  function enable(contents) {
+    isRemoteModuleEnabledCache.set(contents, true);
+  }
+  exports.enable = enable;
+  const handleRemoteCommand = function(channel, handler) {
+    electron_12.ipcMain.on(channel, (event, contextId, ...args) => {
+      let returnValue;
+      if (!exports.isRemoteModuleEnabled(event.sender)) {
+        event.returnValue = {
+          type: "exception",
+          value: valueToMeta(event.sender, contextId, new Error('@electron/remote is disabled for this WebContents. Call require("@electron/remote/main").enable(webContents) to enable it.'))
+        };
+        return;
+      }
+      try {
+        returnValue = handler(event, contextId, ...args);
+      } catch (error) {
+        returnValue = {
+          type: "exception",
+          value: valueToMeta(event.sender, contextId, error)
+        };
+      }
+      if (returnValue !== void 0) {
+        event.returnValue = returnValue;
+      }
+    });
+  };
+  const emitCustomEvent = function(contents, eventName, ...args) {
+    const event = { sender: contents, returnValue: void 0, defaultPrevented: false };
+    electron_12.app.emit(eventName, event, contents, ...args);
+    contents.emit(eventName, event, ...args);
+    return event;
+  };
+  const logStack = function(contents, code, stack) {
+    if (stack) {
+      console.warn(`WebContents (${contents.id}): ${code}`, stack);
+    }
+  };
+  let initialized = false;
+  function isInitialized2() {
+    return initialized;
+  }
+  exports.isInitialized = isInitialized2;
+  function initialize() {
+    if (initialized)
+      throw new Error("@electron/remote has already been initialized");
+    initialized = true;
+    handleRemoteCommand("REMOTE_BROWSER_WRONG_CONTEXT_ERROR", function(event, contextId, passedContextId, id) {
+      const objectId = [passedContextId, id];
+      const cachedFunction = getCachedRendererFunction(objectId);
+      if (cachedFunction === void 0) {
+        return;
+      }
+      removeRemoteListenersAndLogWarning(event.sender, cachedFunction);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_REQUIRE", function(event, contextId, moduleName, stack) {
+      logStack(event.sender, `remote.require('${moduleName}')`, stack);
+      const customEvent = emitCustomEvent(event.sender, "remote-require", moduleName);
+      if (customEvent.returnValue === void 0) {
+        if (customEvent.defaultPrevented) {
+          throw new Error(`Blocked remote.require('${moduleName}')`);
+        } else {
+          if (process.mainModule) {
+            customEvent.returnValue = process.mainModule.require(moduleName);
+          } else {
+            let mainModule = module;
+            while (mainModule.parent) {
+              mainModule = mainModule.parent;
+            }
+            customEvent.returnValue = mainModule.require(moduleName);
+          }
+        }
+      }
+      return valueToMeta(event.sender, contextId, customEvent.returnValue);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_GET_BUILTIN", function(event, contextId, moduleName, stack) {
+      logStack(event.sender, `remote.getBuiltin('${moduleName}')`, stack);
+      const customEvent = emitCustomEvent(event.sender, "remote-get-builtin", moduleName);
+      if (customEvent.returnValue === void 0) {
+        if (customEvent.defaultPrevented) {
+          throw new Error(`Blocked remote.getBuiltin('${moduleName}')`);
+        } else {
+          customEvent.returnValue = electron[moduleName];
+        }
+      }
+      return valueToMeta(event.sender, contextId, customEvent.returnValue);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_GET_GLOBAL", function(event, contextId, globalName, stack) {
+      logStack(event.sender, `remote.getGlobal('${globalName}')`, stack);
+      const customEvent = emitCustomEvent(event.sender, "remote-get-global", globalName);
+      if (customEvent.returnValue === void 0) {
+        if (customEvent.defaultPrevented) {
+          throw new Error(`Blocked remote.getGlobal('${globalName}')`);
+        } else {
+          customEvent.returnValue = commonjsGlobal[globalName];
+        }
+      }
+      return valueToMeta(event.sender, contextId, customEvent.returnValue);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_GET_CURRENT_WINDOW", function(event, contextId, stack) {
+      logStack(event.sender, "remote.getCurrentWindow()", stack);
+      const customEvent = emitCustomEvent(event.sender, "remote-get-current-window");
+      if (customEvent.returnValue === void 0) {
+        if (customEvent.defaultPrevented) {
+          throw new Error("Blocked remote.getCurrentWindow()");
+        } else {
+          customEvent.returnValue = event.sender.getOwnerBrowserWindow();
+        }
+      }
+      return valueToMeta(event.sender, contextId, customEvent.returnValue);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_GET_CURRENT_WEB_CONTENTS", function(event, contextId, stack) {
+      logStack(event.sender, "remote.getCurrentWebContents()", stack);
+      const customEvent = emitCustomEvent(event.sender, "remote-get-current-web-contents");
+      if (customEvent.returnValue === void 0) {
+        if (customEvent.defaultPrevented) {
+          throw new Error("Blocked remote.getCurrentWebContents()");
+        } else {
+          customEvent.returnValue = event.sender;
+        }
+      }
+      return valueToMeta(event.sender, contextId, customEvent.returnValue);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_CONSTRUCTOR", function(event, contextId, id, args) {
+      args = unwrapArgs(event.sender, event.frameId, contextId, args);
+      const constructor = objects_registry_1.default.get(id);
+      if (constructor == null) {
+        throwRPCError(`Cannot call constructor on missing remote object ${id}`);
+      }
+      return valueToMeta(event.sender, contextId, new constructor(...args));
+    });
+    handleRemoteCommand("REMOTE_BROWSER_FUNCTION_CALL", function(event, contextId, id, args) {
+      args = unwrapArgs(event.sender, event.frameId, contextId, args);
+      const func = objects_registry_1.default.get(id);
+      if (func == null) {
+        throwRPCError(`Cannot call function on missing remote object ${id}`);
+      }
+      try {
+        return valueToMeta(event.sender, contextId, func(...args), true);
+      } catch (error) {
+        const err = new Error(`Could not call remote function '${func.name || "anonymous"}'. Check that the function signature is correct. Underlying error: ${error}
+` + (error instanceof Error ? `Underlying stack: ${error.stack}
+` : ""));
+        err.cause = error;
+        throw err;
+      }
+    });
+    handleRemoteCommand("REMOTE_BROWSER_MEMBER_CONSTRUCTOR", function(event, contextId, id, method, args) {
+      args = unwrapArgs(event.sender, event.frameId, contextId, args);
+      const object = objects_registry_1.default.get(id);
+      if (object == null) {
+        throwRPCError(`Cannot call constructor '${method}' on missing remote object ${id}`);
+      }
+      return valueToMeta(event.sender, contextId, new object[method](...args));
+    });
+    handleRemoteCommand("REMOTE_BROWSER_MEMBER_CALL", function(event, contextId, id, method, args) {
+      args = unwrapArgs(event.sender, event.frameId, contextId, args);
+      const object = objects_registry_1.default.get(id);
+      if (object == null) {
+        throwRPCError(`Cannot call method '${method}' on missing remote object ${id}`);
+      }
+      try {
+        return valueToMeta(event.sender, contextId, object[method](...args), true);
+      } catch (error) {
+        const err = new Error(`Could not call remote method '${method}'. Check that the method signature is correct. Underlying error: ${error}` + (error instanceof Error ? `Underlying stack: ${error.stack}
+` : ""));
+        err.cause = error;
+        throw err;
+      }
+    });
+    handleRemoteCommand("REMOTE_BROWSER_MEMBER_SET", function(event, contextId, id, name, args) {
+      args = unwrapArgs(event.sender, event.frameId, contextId, args);
+      const obj = objects_registry_1.default.get(id);
+      if (obj == null) {
+        throwRPCError(`Cannot set property '${name}' on missing remote object ${id}`);
+      }
+      obj[name] = args[0];
+      return null;
+    });
+    handleRemoteCommand("REMOTE_BROWSER_MEMBER_GET", function(event, contextId, id, name) {
+      const obj = objects_registry_1.default.get(id);
+      if (obj == null) {
+        throwRPCError(`Cannot get property '${name}' on missing remote object ${id}`);
+      }
+      return valueToMeta(event.sender, contextId, obj[name]);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_DEREFERENCE", function(event, contextId, id) {
+      objects_registry_1.default.remove(event.sender, contextId, id);
+    });
+    handleRemoteCommand("REMOTE_BROWSER_CONTEXT_RELEASE", (event, contextId) => {
+      objects_registry_1.default.clear(event.sender, contextId);
+      return null;
+    });
+  }
+  exports.initialize = initialize;
+})(server, server.exports);
+var serverExports = server.exports;
+(function(exports) {
+  Object.defineProperty(exports, "__esModule", { value: true });
+  exports.enable = exports.isInitialized = exports.initialize = void 0;
+  var server_1 = serverExports;
+  Object.defineProperty(exports, "initialize", { enumerable: true, get: function() {
+    return server_1.initialize;
+  } });
+  Object.defineProperty(exports, "isInitialized", { enumerable: true, get: function() {
+    return server_1.isInitialized;
+  } });
+  Object.defineProperty(exports, "enable", { enumerable: true, get: function() {
+    return server_1.enable;
+  } });
+})(main$1);
+var main = main$1;
+const remote = /* @__PURE__ */ getDefaultExportFromCjs(main);
 function isFullwidthCodePoint(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -329,21 +1119,6 @@ function sliceAnsi(string, begin, end) {
   }
   return output;
 }
-function ansiRegex({ onlyFirst = false } = {}) {
-  const ST = "(?:\\u0007|\\u001B\\u005C|\\u009C)";
-  const pattern = [
-    `[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?${ST})`,
-    "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))"
-  ].join("|");
-  return new RegExp(pattern, onlyFirst ? void 0 : "g");
-}
-const regex = ansiRegex();
-function stripAnsi(string) {
-  if (typeof string !== "string") {
-    throw new TypeError(`Expected a \`string\`, got \`${typeof string}\``);
-  }
-  return string.replace(regex, "");
-}
 function isAmbiguous(x) {
   return x === 161 || x === 164 || x === 167 || x === 168 || x === 170 || x === 173 || x === 174 || x >= 176 && x <= 180 || x >= 182 && x <= 186 || x >= 188 && x <= 191 || x === 198 || x === 208 || x === 215 || x === 216 || x >= 222 && x <= 225 || x === 230 || x >= 232 && x <= 234 || x === 236 || x === 237 || x === 240 || x === 242 || x === 243 || x >= 247 && x <= 250 || x === 252 || x === 254 || x === 257 || x === 273 || x === 275 || x === 283 || x === 294 || x === 295 || x === 299 || x >= 305 && x <= 307 || x === 312 || x >= 319 && x <= 322 || x === 324 || x >= 328 && x <= 331 || x === 333 || x === 338 || x === 339 || x === 358 || x === 359 || x === 363 || x === 462 || x === 464 || x === 466 || x === 468 || x === 470 || x === 472 || x === 474 || x === 476 || x === 593 || x === 609 || x === 708 || x === 711 || x >= 713 && x <= 715 || x === 717 || x === 720 || x >= 728 && x <= 731 || x === 733 || x === 735 || x >= 768 && x <= 879 || x >= 913 && x <= 929 || x >= 931 && x <= 937 || x >= 945 && x <= 961 || x >= 963 && x <= 969 || x === 1025 || x >= 1040 && x <= 1103 || x === 1105 || x === 8208 || x >= 8211 && x <= 8214 || x === 8216 || x === 8217 || x === 8220 || x === 8221 || x >= 8224 && x <= 8226 || x >= 8228 && x <= 8231 || x === 8240 || x === 8242 || x === 8243 || x === 8245 || x === 8251 || x === 8254 || x === 8308 || x === 8319 || x >= 8321 && x <= 8324 || x === 8364 || x === 8451 || x === 8453 || x === 8457 || x === 8467 || x === 8470 || x === 8481 || x === 8482 || x === 8486 || x === 8491 || x === 8531 || x === 8532 || x >= 8539 && x <= 8542 || x >= 8544 && x <= 8555 || x >= 8560 && x <= 8569 || x === 8585 || x >= 8592 && x <= 8601 || x === 8632 || x === 8633 || x === 8658 || x === 8660 || x === 8679 || x === 8704 || x === 8706 || x === 8707 || x === 8711 || x === 8712 || x === 8715 || x === 8719 || x === 8721 || x === 8725 || x === 8730 || x >= 8733 && x <= 8736 || x === 8739 || x === 8741 || x >= 8743 && x <= 8748 || x === 8750 || x >= 8756 && x <= 8759 || x === 8764 || x === 8765 || x === 8776 || x === 8780 || x === 8786 || x === 8800 || x === 8801 || x >= 8804 && x <= 8807 || x === 8810 || x === 8811 || x === 8814 || x === 8815 || x === 8834 || x === 8835 || x === 8838 || x === 8839 || x === 8853 || x === 8857 || x === 8869 || x === 8895 || x === 8978 || x >= 9312 && x <= 9449 || x >= 9451 && x <= 9547 || x >= 9552 && x <= 9587 || x >= 9600 && x <= 9615 || x >= 9618 && x <= 9621 || x === 9632 || x === 9633 || x >= 9635 && x <= 9641 || x === 9650 || x === 9651 || x === 9654 || x === 9655 || x === 9660 || x === 9661 || x === 9664 || x === 9665 || x >= 9670 && x <= 9672 || x === 9675 || x >= 9678 && x <= 9681 || x >= 9698 && x <= 9701 || x === 9711 || x === 9733 || x === 9734 || x === 9737 || x === 9742 || x === 9743 || x === 9756 || x === 9758 || x === 9792 || x === 9794 || x === 9824 || x === 9825 || x >= 9827 && x <= 9829 || x >= 9831 && x <= 9834 || x === 9836 || x === 9837 || x === 9839 || x === 9886 || x === 9887 || x === 9919 || x >= 9926 && x <= 9933 || x >= 9935 && x <= 9939 || x >= 9941 && x <= 9953 || x === 9955 || x === 9960 || x === 9961 || x >= 9963 && x <= 9969 || x === 9972 || x >= 9974 && x <= 9977 || x === 9979 || x === 9980 || x === 9982 || x === 9983 || x === 10045 || x >= 10102 && x <= 10111 || x >= 11094 && x <= 11097 || x >= 12872 && x <= 12879 || x >= 57344 && x <= 63743 || x >= 65024 && x <= 65039 || x === 65533 || x >= 127232 && x <= 127242 || x >= 127248 && x <= 127277 || x >= 127280 && x <= 127337 || x >= 127344 && x <= 127373 || x === 127375 || x === 127376 || x >= 127387 && x <= 127404 || x >= 917760 && x <= 917999 || x >= 983040 && x <= 1048573 || x >= 1048576 && x <= 1114109;
 }
@@ -552,7 +1327,7 @@ function pupa(template, data, { ignoreMissing = false, transform = ({ value }) =
     }
     return String(transformedValue);
   };
-  const composeHtmlEscape = (replacer) => (...args2) => htmlEscape(replacer(...args2));
+  const composeHtmlEscape = (replacer) => (...args) => htmlEscape(replacer(...args));
   const doubleBraceRegex = /{{(\d+|[a-z$_][\w\-$]*?(?:\.[\w\-$]*?)*?)}}/gi;
   if (doubleBraceRegex.test(template)) {
     template = template.replace(doubleBraceRegex, composeHtmlEscape(replace));
@@ -569,7 +1344,7 @@ const getFilenameFromMime = (name, mime) => {
   }
   return `${name}.${extensions[0].ext}`;
 };
-function registerListener(session, options, callback = () => {
+function registerListener(session2, options, callback = () => {
 }) {
   const downloadItems = /* @__PURE__ */ new Set();
   let receivedBytes = 0;
@@ -648,7 +1423,7 @@ function registerListener(session, options, callback = () => {
         totalBytes = 0;
       }
       if (options.unregisterWhenDone) {
-        session.removeListener("will-download", listener);
+        session2.removeListener("will-download", listener);
       }
       if (state === "cancelled") {
         if (typeof options.onCancel === "function") {
@@ -664,7 +1439,7 @@ function registerListener(session, options, callback = () => {
           app.dock.downloadFinished(savePath);
         }
         if (options.openFolderWhenDone) {
-          shell$1.showItemInFolder(savePath);
+          shell.showItemInFolder(savePath);
         }
         if (typeof options.onCompleted === "function") {
           options.onCompleted({
@@ -684,7 +1459,7 @@ function registerListener(session, options, callback = () => {
       options.onStarted(item);
     }
   };
-  session.on("will-download", listener);
+  session2.on("will-download", listener);
 }
 async function download(window_, url, options) {
   return new Promise((resolve2, reject) => {
@@ -705,9 +1480,9 @@ async function download(window_, url, options) {
 if (typeof electron === "string") {
   throw new TypeError("Not running in an Electron environment!");
 }
-const { env: env$2 } = process;
-const isEnvSet = "ELECTRON_IS_DEV" in env$2;
-const getFromEnv = Number.parseInt(env$2.ELECTRON_IS_DEV, 10) === 1;
+const { env: env$1 } = process;
+const isEnvSet = "ELECTRON_IS_DEV" in env$1;
+const getFromEnv = Number.parseInt(env$1.ELECTRON_IS_DEV, 10) === 1;
 const isDev = isEnvSet ? getFromEnv : !electron.app.isPackaged;
 const webContents = (win) => win.webContents ?? (win.id && win);
 const decorateMenuItem = (menuItem) => (options = {}) => {
@@ -1074,69 +1849,6 @@ function contextMenu(options = {}) {
   });
   return dispose;
 }
-const detectDefaultShell = () => {
-  const { env: env2 } = process$1;
-  if (process$1.platform === "win32") {
-    return env2.COMSPEC || "cmd.exe";
-  }
-  try {
-    const { shell: shell2 } = userInfo();
-    if (shell2) {
-      return shell2;
-    }
-  } catch {
-  }
-  if (process$1.platform === "darwin") {
-    return env2.SHELL || "/bin/zsh";
-  }
-  return env2.SHELL || "/bin/sh";
-};
-const defaultShell = detectDefaultShell();
-const args = [
-  "-ilc",
-  'echo -n "_SHELL_ENV_DELIMITER_"; env; echo -n "_SHELL_ENV_DELIMITER_"; exit'
-];
-const env$1 = {
-  // Disables Oh My Zsh auto-update thing that can block the process.
-  DISABLE_AUTO_UPDATE: "true"
-};
-const parseEnv = (env2) => {
-  env2 = env2.split("_SHELL_ENV_DELIMITER_")[1];
-  const returnValue = {};
-  for (const line of stripAnsi(env2).split("\n").filter((line2) => Boolean(line2))) {
-    const [key, ...values] = line.split("=");
-    returnValue[key] = values.join("=");
-  }
-  return returnValue;
-};
-function shellEnvSync(shell2) {
-  if (process$1.platform === "win32") {
-    return process$1.env;
-  }
-  try {
-    const { stdout } = execa.sync(shell2 || defaultShell, args, { env: env$1 });
-    return parseEnv(stdout);
-  } catch (error) {
-    {
-      return process$1.env;
-    }
-  }
-}
-function shellPathSync() {
-  const { PATH } = shellEnvSync();
-  return PATH;
-}
-function fixPath() {
-  if (process$1.platform === "win32") {
-    return;
-  }
-  process$1.env.PATH = shellPathSync() || [
-    "./node_modules/.bin",
-    "/.nodebrew/current/bin",
-    "/usr/local/bin",
-    process$1.env.PATH
-  ].join(":");
-}
 if (process.platform === "darwin") {
   fixPath();
 }
@@ -1144,1005 +1856,6 @@ process.env.IS_PACKAGED = String(app.isPackaged);
 process.env.DESKTOP_PATH = app.getPath("desktop");
 process.env.CWD = process.cwd();
 const isPackaged$1 = ["true"].includes(process.env.IS_PACKAGED);
-var freeGlobal = typeof global == "object" && global && global.Object === Object && global;
-var freeSelf = typeof self == "object" && self && self.Object === Object && self;
-var root = freeGlobal || freeSelf || Function("return this")();
-var Symbol$1 = root.Symbol;
-var objectProto$e = Object.prototype;
-var hasOwnProperty$b = objectProto$e.hasOwnProperty;
-var nativeObjectToString$1 = objectProto$e.toString;
-var symToStringTag$1 = Symbol$1 ? Symbol$1.toStringTag : void 0;
-function getRawTag(value) {
-  var isOwn = hasOwnProperty$b.call(value, symToStringTag$1), tag = value[symToStringTag$1];
-  try {
-    value[symToStringTag$1] = void 0;
-    var unmasked = true;
-  } catch (e) {
-  }
-  var result = nativeObjectToString$1.call(value);
-  if (unmasked) {
-    if (isOwn) {
-      value[symToStringTag$1] = tag;
-    } else {
-      delete value[symToStringTag$1];
-    }
-  }
-  return result;
-}
-var objectProto$d = Object.prototype;
-var nativeObjectToString = objectProto$d.toString;
-function objectToString$1(value) {
-  return nativeObjectToString.call(value);
-}
-var nullTag = "[object Null]", undefinedTag = "[object Undefined]";
-var symToStringTag = Symbol$1 ? Symbol$1.toStringTag : void 0;
-function baseGetTag(value) {
-  if (value == null) {
-    return value === void 0 ? undefinedTag : nullTag;
-  }
-  return symToStringTag && symToStringTag in Object(value) ? getRawTag(value) : objectToString$1(value);
-}
-function isObjectLike(value) {
-  return value != null && typeof value == "object";
-}
-var isArray = Array.isArray;
-function isObject$1(value) {
-  var type = typeof value;
-  return value != null && (type == "object" || type == "function");
-}
-var asyncTag = "[object AsyncFunction]", funcTag$2 = "[object Function]", genTag$1 = "[object GeneratorFunction]", proxyTag = "[object Proxy]";
-function isFunction(value) {
-  if (!isObject$1(value)) {
-    return false;
-  }
-  var tag = baseGetTag(value);
-  return tag == funcTag$2 || tag == genTag$1 || tag == asyncTag || tag == proxyTag;
-}
-var coreJsData = root["__core-js_shared__"];
-var maskSrcKey = function() {
-  var uid = /[^.]+$/.exec(coreJsData && coreJsData.keys && coreJsData.keys.IE_PROTO || "");
-  return uid ? "Symbol(src)_1." + uid : "";
-}();
-function isMasked(func) {
-  return !!maskSrcKey && maskSrcKey in func;
-}
-var funcProto$1 = Function.prototype;
-var funcToString$1 = funcProto$1.toString;
-function toSource(func) {
-  if (func != null) {
-    try {
-      return funcToString$1.call(func);
-    } catch (e) {
-    }
-    try {
-      return func + "";
-    } catch (e) {
-    }
-  }
-  return "";
-}
-var reRegExpChar = /[\\^$.*+?()[\]{}|]/g;
-var reIsHostCtor = /^\[object .+?Constructor\]$/;
-var funcProto = Function.prototype, objectProto$c = Object.prototype;
-var funcToString = funcProto.toString;
-var hasOwnProperty$a = objectProto$c.hasOwnProperty;
-var reIsNative = RegExp(
-  "^" + funcToString.call(hasOwnProperty$a).replace(reRegExpChar, "\\$&").replace(/hasOwnProperty|(function).*?(?=\\\()| for .+?(?=\\\])/g, "$1.*?") + "$"
-);
-function baseIsNative(value) {
-  if (!isObject$1(value) || isMasked(value)) {
-    return false;
-  }
-  var pattern = isFunction(value) ? reIsNative : reIsHostCtor;
-  return pattern.test(toSource(value));
-}
-function getValue(object, key) {
-  return object == null ? void 0 : object[key];
-}
-function getNative(object, key) {
-  var value = getValue(object, key);
-  return baseIsNative(value) ? value : void 0;
-}
-var WeakMap2 = getNative(root, "WeakMap");
-var objectCreate = Object.create;
-var baseCreate = /* @__PURE__ */ function() {
-  function object() {
-  }
-  return function(proto) {
-    if (!isObject$1(proto)) {
-      return {};
-    }
-    if (objectCreate) {
-      return objectCreate(proto);
-    }
-    object.prototype = proto;
-    var result = new object();
-    object.prototype = void 0;
-    return result;
-  };
-}();
-function copyArray(source, array) {
-  var index = -1, length = source.length;
-  array || (array = Array(length));
-  while (++index < length) {
-    array[index] = source[index];
-  }
-  return array;
-}
-var defineProperty = function() {
-  try {
-    var func = getNative(Object, "defineProperty");
-    func({}, "", {});
-    return func;
-  } catch (e) {
-  }
-}();
-function arrayEach(array, iteratee) {
-  var index = -1, length = array == null ? 0 : array.length;
-  while (++index < length) {
-    if (iteratee(array[index], index, array) === false) {
-      break;
-    }
-  }
-  return array;
-}
-var MAX_SAFE_INTEGER$1 = 9007199254740991;
-var reIsUint = /^(?:0|[1-9]\d*)$/;
-function isIndex(value, length) {
-  var type = typeof value;
-  length = length == null ? MAX_SAFE_INTEGER$1 : length;
-  return !!length && (type == "number" || type != "symbol" && reIsUint.test(value)) && (value > -1 && value % 1 == 0 && value < length);
-}
-function baseAssignValue(object, key, value) {
-  if (key == "__proto__" && defineProperty) {
-    defineProperty(object, key, {
-      "configurable": true,
-      "enumerable": true,
-      "value": value,
-      "writable": true
-    });
-  } else {
-    object[key] = value;
-  }
-}
-function eq(value, other) {
-  return value === other || value !== value && other !== other;
-}
-var objectProto$b = Object.prototype;
-var hasOwnProperty$9 = objectProto$b.hasOwnProperty;
-function assignValue(object, key, value) {
-  var objValue = object[key];
-  if (!(hasOwnProperty$9.call(object, key) && eq(objValue, value)) || value === void 0 && !(key in object)) {
-    baseAssignValue(object, key, value);
-  }
-}
-function copyObject(source, props, object, customizer) {
-  var isNew = !object;
-  object || (object = {});
-  var index = -1, length = props.length;
-  while (++index < length) {
-    var key = props[index];
-    var newValue = void 0;
-    if (newValue === void 0) {
-      newValue = source[key];
-    }
-    if (isNew) {
-      baseAssignValue(object, key, newValue);
-    } else {
-      assignValue(object, key, newValue);
-    }
-  }
-  return object;
-}
-var MAX_SAFE_INTEGER = 9007199254740991;
-function isLength(value) {
-  return typeof value == "number" && value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
-}
-function isArrayLike(value) {
-  return value != null && isLength(value.length) && !isFunction(value);
-}
-var objectProto$a = Object.prototype;
-function isPrototype(value) {
-  var Ctor = value && value.constructor, proto = typeof Ctor == "function" && Ctor.prototype || objectProto$a;
-  return value === proto;
-}
-function baseTimes(n, iteratee) {
-  var index = -1, result = Array(n);
-  while (++index < n) {
-    result[index] = iteratee(index);
-  }
-  return result;
-}
-var argsTag$3 = "[object Arguments]";
-function baseIsArguments(value) {
-  return isObjectLike(value) && baseGetTag(value) == argsTag$3;
-}
-var objectProto$9 = Object.prototype;
-var hasOwnProperty$8 = objectProto$9.hasOwnProperty;
-var propertyIsEnumerable$1 = objectProto$9.propertyIsEnumerable;
-var isArguments = baseIsArguments(/* @__PURE__ */ function() {
-  return arguments;
-}()) ? baseIsArguments : function(value) {
-  return isObjectLike(value) && hasOwnProperty$8.call(value, "callee") && !propertyIsEnumerable$1.call(value, "callee");
-};
-function stubFalse() {
-  return false;
-}
-var freeExports$2 = typeof exports == "object" && exports && !exports.nodeType && exports;
-var freeModule$2 = freeExports$2 && typeof module == "object" && module && !module.nodeType && module;
-var moduleExports$2 = freeModule$2 && freeModule$2.exports === freeExports$2;
-var Buffer$1 = moduleExports$2 ? root.Buffer : void 0;
-var nativeIsBuffer = Buffer$1 ? Buffer$1.isBuffer : void 0;
-var isBuffer = nativeIsBuffer || stubFalse;
-var argsTag$2 = "[object Arguments]", arrayTag$2 = "[object Array]", boolTag$3 = "[object Boolean]", dateTag$3 = "[object Date]", errorTag$2 = "[object Error]", funcTag$1 = "[object Function]", mapTag$5 = "[object Map]", numberTag$3 = "[object Number]", objectTag$3 = "[object Object]", regexpTag$3 = "[object RegExp]", setTag$5 = "[object Set]", stringTag$3 = "[object String]", weakMapTag$2 = "[object WeakMap]";
-var arrayBufferTag$3 = "[object ArrayBuffer]", dataViewTag$4 = "[object DataView]", float32Tag$2 = "[object Float32Array]", float64Tag$2 = "[object Float64Array]", int8Tag$2 = "[object Int8Array]", int16Tag$2 = "[object Int16Array]", int32Tag$2 = "[object Int32Array]", uint8Tag$2 = "[object Uint8Array]", uint8ClampedTag$2 = "[object Uint8ClampedArray]", uint16Tag$2 = "[object Uint16Array]", uint32Tag$2 = "[object Uint32Array]";
-var typedArrayTags = {};
-typedArrayTags[float32Tag$2] = typedArrayTags[float64Tag$2] = typedArrayTags[int8Tag$2] = typedArrayTags[int16Tag$2] = typedArrayTags[int32Tag$2] = typedArrayTags[uint8Tag$2] = typedArrayTags[uint8ClampedTag$2] = typedArrayTags[uint16Tag$2] = typedArrayTags[uint32Tag$2] = true;
-typedArrayTags[argsTag$2] = typedArrayTags[arrayTag$2] = typedArrayTags[arrayBufferTag$3] = typedArrayTags[boolTag$3] = typedArrayTags[dataViewTag$4] = typedArrayTags[dateTag$3] = typedArrayTags[errorTag$2] = typedArrayTags[funcTag$1] = typedArrayTags[mapTag$5] = typedArrayTags[numberTag$3] = typedArrayTags[objectTag$3] = typedArrayTags[regexpTag$3] = typedArrayTags[setTag$5] = typedArrayTags[stringTag$3] = typedArrayTags[weakMapTag$2] = false;
-function baseIsTypedArray(value) {
-  return isObjectLike(value) && isLength(value.length) && !!typedArrayTags[baseGetTag(value)];
-}
-function baseUnary(func) {
-  return function(value) {
-    return func(value);
-  };
-}
-var freeExports$1 = typeof exports == "object" && exports && !exports.nodeType && exports;
-var freeModule$1 = freeExports$1 && typeof module == "object" && module && !module.nodeType && module;
-var moduleExports$1 = freeModule$1 && freeModule$1.exports === freeExports$1;
-var freeProcess = moduleExports$1 && freeGlobal.process;
-var nodeUtil = function() {
-  try {
-    var types = freeModule$1 && freeModule$1.require && freeModule$1.require("util").types;
-    if (types) {
-      return types;
-    }
-    return freeProcess && freeProcess.binding && freeProcess.binding("util");
-  } catch (e) {
-  }
-}();
-var nodeIsTypedArray = nodeUtil && nodeUtil.isTypedArray;
-var isTypedArray = nodeIsTypedArray ? baseUnary(nodeIsTypedArray) : baseIsTypedArray;
-var objectProto$8 = Object.prototype;
-var hasOwnProperty$7 = objectProto$8.hasOwnProperty;
-function arrayLikeKeys(value, inherited) {
-  var isArr = isArray(value), isArg = !isArr && isArguments(value), isBuff = !isArr && !isArg && isBuffer(value), isType = !isArr && !isArg && !isBuff && isTypedArray(value), skipIndexes = isArr || isArg || isBuff || isType, result = skipIndexes ? baseTimes(value.length, String) : [], length = result.length;
-  for (var key in value) {
-    if ((inherited || hasOwnProperty$7.call(value, key)) && !(skipIndexes && // Safari 9 has enumerable `arguments.length` in strict mode.
-    (key == "length" || // Node.js 0.10 has enumerable non-index properties on buffers.
-    isBuff && (key == "offset" || key == "parent") || // PhantomJS 2 has enumerable non-index properties on typed arrays.
-    isType && (key == "buffer" || key == "byteLength" || key == "byteOffset") || // Skip index properties.
-    isIndex(key, length)))) {
-      result.push(key);
-    }
-  }
-  return result;
-}
-function overArg(func, transform) {
-  return function(arg) {
-    return func(transform(arg));
-  };
-}
-var nativeKeys = overArg(Object.keys, Object);
-var objectProto$7 = Object.prototype;
-var hasOwnProperty$6 = objectProto$7.hasOwnProperty;
-function baseKeys(object) {
-  if (!isPrototype(object)) {
-    return nativeKeys(object);
-  }
-  var result = [];
-  for (var key in Object(object)) {
-    if (hasOwnProperty$6.call(object, key) && key != "constructor") {
-      result.push(key);
-    }
-  }
-  return result;
-}
-function keys(object) {
-  return isArrayLike(object) ? arrayLikeKeys(object) : baseKeys(object);
-}
-function nativeKeysIn(object) {
-  var result = [];
-  if (object != null) {
-    for (var key in Object(object)) {
-      result.push(key);
-    }
-  }
-  return result;
-}
-var objectProto$6 = Object.prototype;
-var hasOwnProperty$5 = objectProto$6.hasOwnProperty;
-function baseKeysIn(object) {
-  if (!isObject$1(object)) {
-    return nativeKeysIn(object);
-  }
-  var isProto = isPrototype(object), result = [];
-  for (var key in object) {
-    if (!(key == "constructor" && (isProto || !hasOwnProperty$5.call(object, key)))) {
-      result.push(key);
-    }
-  }
-  return result;
-}
-function keysIn(object) {
-  return isArrayLike(object) ? arrayLikeKeys(object, true) : baseKeysIn(object);
-}
-var nativeCreate = getNative(Object, "create");
-function hashClear() {
-  this.__data__ = nativeCreate ? nativeCreate(null) : {};
-  this.size = 0;
-}
-function hashDelete(key) {
-  var result = this.has(key) && delete this.__data__[key];
-  this.size -= result ? 1 : 0;
-  return result;
-}
-var HASH_UNDEFINED$2 = "__lodash_hash_undefined__";
-var objectProto$5 = Object.prototype;
-var hasOwnProperty$4 = objectProto$5.hasOwnProperty;
-function hashGet(key) {
-  var data = this.__data__;
-  if (nativeCreate) {
-    var result = data[key];
-    return result === HASH_UNDEFINED$2 ? void 0 : result;
-  }
-  return hasOwnProperty$4.call(data, key) ? data[key] : void 0;
-}
-var objectProto$4 = Object.prototype;
-var hasOwnProperty$3 = objectProto$4.hasOwnProperty;
-function hashHas(key) {
-  var data = this.__data__;
-  return nativeCreate ? data[key] !== void 0 : hasOwnProperty$3.call(data, key);
-}
-var HASH_UNDEFINED$1 = "__lodash_hash_undefined__";
-function hashSet(key, value) {
-  var data = this.__data__;
-  this.size += this.has(key) ? 0 : 1;
-  data[key] = nativeCreate && value === void 0 ? HASH_UNDEFINED$1 : value;
-  return this;
-}
-function Hash(entries) {
-  var index = -1, length = entries == null ? 0 : entries.length;
-  this.clear();
-  while (++index < length) {
-    var entry = entries[index];
-    this.set(entry[0], entry[1]);
-  }
-}
-Hash.prototype.clear = hashClear;
-Hash.prototype["delete"] = hashDelete;
-Hash.prototype.get = hashGet;
-Hash.prototype.has = hashHas;
-Hash.prototype.set = hashSet;
-function listCacheClear() {
-  this.__data__ = [];
-  this.size = 0;
-}
-function assocIndexOf(array, key) {
-  var length = array.length;
-  while (length--) {
-    if (eq(array[length][0], key)) {
-      return length;
-    }
-  }
-  return -1;
-}
-var arrayProto = Array.prototype;
-var splice = arrayProto.splice;
-function listCacheDelete(key) {
-  var data = this.__data__, index = assocIndexOf(data, key);
-  if (index < 0) {
-    return false;
-  }
-  var lastIndex = data.length - 1;
-  if (index == lastIndex) {
-    data.pop();
-  } else {
-    splice.call(data, index, 1);
-  }
-  --this.size;
-  return true;
-}
-function listCacheGet(key) {
-  var data = this.__data__, index = assocIndexOf(data, key);
-  return index < 0 ? void 0 : data[index][1];
-}
-function listCacheHas(key) {
-  return assocIndexOf(this.__data__, key) > -1;
-}
-function listCacheSet(key, value) {
-  var data = this.__data__, index = assocIndexOf(data, key);
-  if (index < 0) {
-    ++this.size;
-    data.push([key, value]);
-  } else {
-    data[index][1] = value;
-  }
-  return this;
-}
-function ListCache(entries) {
-  var index = -1, length = entries == null ? 0 : entries.length;
-  this.clear();
-  while (++index < length) {
-    var entry = entries[index];
-    this.set(entry[0], entry[1]);
-  }
-}
-ListCache.prototype.clear = listCacheClear;
-ListCache.prototype["delete"] = listCacheDelete;
-ListCache.prototype.get = listCacheGet;
-ListCache.prototype.has = listCacheHas;
-ListCache.prototype.set = listCacheSet;
-var Map$1 = getNative(root, "Map");
-function mapCacheClear() {
-  this.size = 0;
-  this.__data__ = {
-    "hash": new Hash(),
-    "map": new (Map$1 || ListCache)(),
-    "string": new Hash()
-  };
-}
-function isKeyable(value) {
-  var type = typeof value;
-  return type == "string" || type == "number" || type == "symbol" || type == "boolean" ? value !== "__proto__" : value === null;
-}
-function getMapData(map, key) {
-  var data = map.__data__;
-  return isKeyable(key) ? data[typeof key == "string" ? "string" : "hash"] : data.map;
-}
-function mapCacheDelete(key) {
-  var result = getMapData(this, key)["delete"](key);
-  this.size -= result ? 1 : 0;
-  return result;
-}
-function mapCacheGet(key) {
-  return getMapData(this, key).get(key);
-}
-function mapCacheHas(key) {
-  return getMapData(this, key).has(key);
-}
-function mapCacheSet(key, value) {
-  var data = getMapData(this, key), size = data.size;
-  data.set(key, value);
-  this.size += data.size == size ? 0 : 1;
-  return this;
-}
-function MapCache(entries) {
-  var index = -1, length = entries == null ? 0 : entries.length;
-  this.clear();
-  while (++index < length) {
-    var entry = entries[index];
-    this.set(entry[0], entry[1]);
-  }
-}
-MapCache.prototype.clear = mapCacheClear;
-MapCache.prototype["delete"] = mapCacheDelete;
-MapCache.prototype.get = mapCacheGet;
-MapCache.prototype.has = mapCacheHas;
-MapCache.prototype.set = mapCacheSet;
-function arrayPush(array, values) {
-  var index = -1, length = values.length, offset = array.length;
-  while (++index < length) {
-    array[offset + index] = values[index];
-  }
-  return array;
-}
-var getPrototype = overArg(Object.getPrototypeOf, Object);
-function stackClear() {
-  this.__data__ = new ListCache();
-  this.size = 0;
-}
-function stackDelete(key) {
-  var data = this.__data__, result = data["delete"](key);
-  this.size = data.size;
-  return result;
-}
-function stackGet(key) {
-  return this.__data__.get(key);
-}
-function stackHas(key) {
-  return this.__data__.has(key);
-}
-var LARGE_ARRAY_SIZE = 200;
-function stackSet(key, value) {
-  var data = this.__data__;
-  if (data instanceof ListCache) {
-    var pairs = data.__data__;
-    if (!Map$1 || pairs.length < LARGE_ARRAY_SIZE - 1) {
-      pairs.push([key, value]);
-      this.size = ++data.size;
-      return this;
-    }
-    data = this.__data__ = new MapCache(pairs);
-  }
-  data.set(key, value);
-  this.size = data.size;
-  return this;
-}
-function Stack(entries) {
-  var data = this.__data__ = new ListCache(entries);
-  this.size = data.size;
-}
-Stack.prototype.clear = stackClear;
-Stack.prototype["delete"] = stackDelete;
-Stack.prototype.get = stackGet;
-Stack.prototype.has = stackHas;
-Stack.prototype.set = stackSet;
-function baseAssign(object, source) {
-  return object && copyObject(source, keys(source), object);
-}
-function baseAssignIn(object, source) {
-  return object && copyObject(source, keysIn(source), object);
-}
-var freeExports = typeof exports == "object" && exports && !exports.nodeType && exports;
-var freeModule = freeExports && typeof module == "object" && module && !module.nodeType && module;
-var moduleExports = freeModule && freeModule.exports === freeExports;
-var Buffer2 = moduleExports ? root.Buffer : void 0, allocUnsafe = Buffer2 ? Buffer2.allocUnsafe : void 0;
-function cloneBuffer(buffer, isDeep) {
-  if (isDeep) {
-    return buffer.slice();
-  }
-  var length = buffer.length, result = allocUnsafe ? allocUnsafe(length) : new buffer.constructor(length);
-  buffer.copy(result);
-  return result;
-}
-function arrayFilter(array, predicate) {
-  var index = -1, length = array == null ? 0 : array.length, resIndex = 0, result = [];
-  while (++index < length) {
-    var value = array[index];
-    if (predicate(value, index, array)) {
-      result[resIndex++] = value;
-    }
-  }
-  return result;
-}
-function stubArray() {
-  return [];
-}
-var objectProto$3 = Object.prototype;
-var propertyIsEnumerable = objectProto$3.propertyIsEnumerable;
-var nativeGetSymbols$1 = Object.getOwnPropertySymbols;
-var getSymbols = !nativeGetSymbols$1 ? stubArray : function(object) {
-  if (object == null) {
-    return [];
-  }
-  object = Object(object);
-  return arrayFilter(nativeGetSymbols$1(object), function(symbol) {
-    return propertyIsEnumerable.call(object, symbol);
-  });
-};
-function copySymbols(source, object) {
-  return copyObject(source, getSymbols(source), object);
-}
-var nativeGetSymbols = Object.getOwnPropertySymbols;
-var getSymbolsIn = !nativeGetSymbols ? stubArray : function(object) {
-  var result = [];
-  while (object) {
-    arrayPush(result, getSymbols(object));
-    object = getPrototype(object);
-  }
-  return result;
-};
-function copySymbolsIn(source, object) {
-  return copyObject(source, getSymbolsIn(source), object);
-}
-function baseGetAllKeys(object, keysFunc, symbolsFunc) {
-  var result = keysFunc(object);
-  return isArray(object) ? result : arrayPush(result, symbolsFunc(object));
-}
-function getAllKeys(object) {
-  return baseGetAllKeys(object, keys, getSymbols);
-}
-function getAllKeysIn(object) {
-  return baseGetAllKeys(object, keysIn, getSymbolsIn);
-}
-var DataView = getNative(root, "DataView");
-var Promise$1 = getNative(root, "Promise");
-var Set$1 = getNative(root, "Set");
-var mapTag$4 = "[object Map]", objectTag$2 = "[object Object]", promiseTag = "[object Promise]", setTag$4 = "[object Set]", weakMapTag$1 = "[object WeakMap]";
-var dataViewTag$3 = "[object DataView]";
-var dataViewCtorString = toSource(DataView), mapCtorString = toSource(Map$1), promiseCtorString = toSource(Promise$1), setCtorString = toSource(Set$1), weakMapCtorString = toSource(WeakMap2);
-var getTag = baseGetTag;
-if (DataView && getTag(new DataView(new ArrayBuffer(1))) != dataViewTag$3 || Map$1 && getTag(new Map$1()) != mapTag$4 || Promise$1 && getTag(Promise$1.resolve()) != promiseTag || Set$1 && getTag(new Set$1()) != setTag$4 || WeakMap2 && getTag(new WeakMap2()) != weakMapTag$1) {
-  getTag = function(value) {
-    var result = baseGetTag(value), Ctor = result == objectTag$2 ? value.constructor : void 0, ctorString = Ctor ? toSource(Ctor) : "";
-    if (ctorString) {
-      switch (ctorString) {
-        case dataViewCtorString:
-          return dataViewTag$3;
-        case mapCtorString:
-          return mapTag$4;
-        case promiseCtorString:
-          return promiseTag;
-        case setCtorString:
-          return setTag$4;
-        case weakMapCtorString:
-          return weakMapTag$1;
-      }
-    }
-    return result;
-  };
-}
-var objectProto$2 = Object.prototype;
-var hasOwnProperty$2 = objectProto$2.hasOwnProperty;
-function initCloneArray(array) {
-  var length = array.length, result = new array.constructor(length);
-  if (length && typeof array[0] == "string" && hasOwnProperty$2.call(array, "index")) {
-    result.index = array.index;
-    result.input = array.input;
-  }
-  return result;
-}
-var Uint8Array$1 = root.Uint8Array;
-function cloneArrayBuffer(arrayBuffer) {
-  var result = new arrayBuffer.constructor(arrayBuffer.byteLength);
-  new Uint8Array$1(result).set(new Uint8Array$1(arrayBuffer));
-  return result;
-}
-function cloneDataView(dataView, isDeep) {
-  var buffer = isDeep ? cloneArrayBuffer(dataView.buffer) : dataView.buffer;
-  return new dataView.constructor(buffer, dataView.byteOffset, dataView.byteLength);
-}
-var reFlags = /\w*$/;
-function cloneRegExp(regexp) {
-  var result = new regexp.constructor(regexp.source, reFlags.exec(regexp));
-  result.lastIndex = regexp.lastIndex;
-  return result;
-}
-var symbolProto$1 = Symbol$1 ? Symbol$1.prototype : void 0, symbolValueOf$1 = symbolProto$1 ? symbolProto$1.valueOf : void 0;
-function cloneSymbol(symbol) {
-  return symbolValueOf$1 ? Object(symbolValueOf$1.call(symbol)) : {};
-}
-function cloneTypedArray(typedArray, isDeep) {
-  var buffer = isDeep ? cloneArrayBuffer(typedArray.buffer) : typedArray.buffer;
-  return new typedArray.constructor(buffer, typedArray.byteOffset, typedArray.length);
-}
-var boolTag$2 = "[object Boolean]", dateTag$2 = "[object Date]", mapTag$3 = "[object Map]", numberTag$2 = "[object Number]", regexpTag$2 = "[object RegExp]", setTag$3 = "[object Set]", stringTag$2 = "[object String]", symbolTag$2 = "[object Symbol]";
-var arrayBufferTag$2 = "[object ArrayBuffer]", dataViewTag$2 = "[object DataView]", float32Tag$1 = "[object Float32Array]", float64Tag$1 = "[object Float64Array]", int8Tag$1 = "[object Int8Array]", int16Tag$1 = "[object Int16Array]", int32Tag$1 = "[object Int32Array]", uint8Tag$1 = "[object Uint8Array]", uint8ClampedTag$1 = "[object Uint8ClampedArray]", uint16Tag$1 = "[object Uint16Array]", uint32Tag$1 = "[object Uint32Array]";
-function initCloneByTag(object, tag, isDeep) {
-  var Ctor = object.constructor;
-  switch (tag) {
-    case arrayBufferTag$2:
-      return cloneArrayBuffer(object);
-    case boolTag$2:
-    case dateTag$2:
-      return new Ctor(+object);
-    case dataViewTag$2:
-      return cloneDataView(object, isDeep);
-    case float32Tag$1:
-    case float64Tag$1:
-    case int8Tag$1:
-    case int16Tag$1:
-    case int32Tag$1:
-    case uint8Tag$1:
-    case uint8ClampedTag$1:
-    case uint16Tag$1:
-    case uint32Tag$1:
-      return cloneTypedArray(object, isDeep);
-    case mapTag$3:
-      return new Ctor();
-    case numberTag$2:
-    case stringTag$2:
-      return new Ctor(object);
-    case regexpTag$2:
-      return cloneRegExp(object);
-    case setTag$3:
-      return new Ctor();
-    case symbolTag$2:
-      return cloneSymbol(object);
-  }
-}
-function initCloneObject(object) {
-  return typeof object.constructor == "function" && !isPrototype(object) ? baseCreate(getPrototype(object)) : {};
-}
-var mapTag$2 = "[object Map]";
-function baseIsMap(value) {
-  return isObjectLike(value) && getTag(value) == mapTag$2;
-}
-var nodeIsMap = nodeUtil && nodeUtil.isMap;
-var isMap = nodeIsMap ? baseUnary(nodeIsMap) : baseIsMap;
-var setTag$2 = "[object Set]";
-function baseIsSet(value) {
-  return isObjectLike(value) && getTag(value) == setTag$2;
-}
-var nodeIsSet = nodeUtil && nodeUtil.isSet;
-var isSet = nodeIsSet ? baseUnary(nodeIsSet) : baseIsSet;
-var CLONE_DEEP_FLAG$1 = 1, CLONE_FLAT_FLAG = 2, CLONE_SYMBOLS_FLAG$1 = 4;
-var argsTag$1 = "[object Arguments]", arrayTag$1 = "[object Array]", boolTag$1 = "[object Boolean]", dateTag$1 = "[object Date]", errorTag$1 = "[object Error]", funcTag = "[object Function]", genTag = "[object GeneratorFunction]", mapTag$1 = "[object Map]", numberTag$1 = "[object Number]", objectTag$1 = "[object Object]", regexpTag$1 = "[object RegExp]", setTag$1 = "[object Set]", stringTag$1 = "[object String]", symbolTag$1 = "[object Symbol]", weakMapTag = "[object WeakMap]";
-var arrayBufferTag$1 = "[object ArrayBuffer]", dataViewTag$1 = "[object DataView]", float32Tag = "[object Float32Array]", float64Tag = "[object Float64Array]", int8Tag = "[object Int8Array]", int16Tag = "[object Int16Array]", int32Tag = "[object Int32Array]", uint8Tag = "[object Uint8Array]", uint8ClampedTag = "[object Uint8ClampedArray]", uint16Tag = "[object Uint16Array]", uint32Tag = "[object Uint32Array]";
-var cloneableTags = {};
-cloneableTags[argsTag$1] = cloneableTags[arrayTag$1] = cloneableTags[arrayBufferTag$1] = cloneableTags[dataViewTag$1] = cloneableTags[boolTag$1] = cloneableTags[dateTag$1] = cloneableTags[float32Tag] = cloneableTags[float64Tag] = cloneableTags[int8Tag] = cloneableTags[int16Tag] = cloneableTags[int32Tag] = cloneableTags[mapTag$1] = cloneableTags[numberTag$1] = cloneableTags[objectTag$1] = cloneableTags[regexpTag$1] = cloneableTags[setTag$1] = cloneableTags[stringTag$1] = cloneableTags[symbolTag$1] = cloneableTags[uint8Tag] = cloneableTags[uint8ClampedTag] = cloneableTags[uint16Tag] = cloneableTags[uint32Tag] = true;
-cloneableTags[errorTag$1] = cloneableTags[funcTag] = cloneableTags[weakMapTag] = false;
-function baseClone(value, bitmask, customizer, key, object, stack) {
-  var result, isDeep = bitmask & CLONE_DEEP_FLAG$1, isFlat = bitmask & CLONE_FLAT_FLAG, isFull = bitmask & CLONE_SYMBOLS_FLAG$1;
-  if (result !== void 0) {
-    return result;
-  }
-  if (!isObject$1(value)) {
-    return value;
-  }
-  var isArr = isArray(value);
-  if (isArr) {
-    result = initCloneArray(value);
-    if (!isDeep) {
-      return copyArray(value, result);
-    }
-  } else {
-    var tag = getTag(value), isFunc = tag == funcTag || tag == genTag;
-    if (isBuffer(value)) {
-      return cloneBuffer(value, isDeep);
-    }
-    if (tag == objectTag$1 || tag == argsTag$1 || isFunc && !object) {
-      result = isFlat || isFunc ? {} : initCloneObject(value);
-      if (!isDeep) {
-        return isFlat ? copySymbolsIn(value, baseAssignIn(result, value)) : copySymbols(value, baseAssign(result, value));
-      }
-    } else {
-      if (!cloneableTags[tag]) {
-        return object ? value : {};
-      }
-      result = initCloneByTag(value, tag, isDeep);
-    }
-  }
-  stack || (stack = new Stack());
-  var stacked = stack.get(value);
-  if (stacked) {
-    return stacked;
-  }
-  stack.set(value, result);
-  if (isSet(value)) {
-    value.forEach(function(subValue) {
-      result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack));
-    });
-  } else if (isMap(value)) {
-    value.forEach(function(subValue, key2) {
-      result.set(key2, baseClone(subValue, bitmask, customizer, key2, value, stack));
-    });
-  }
-  var keysFunc = isFull ? isFlat ? getAllKeysIn : getAllKeys : isFlat ? keysIn : keys;
-  var props = isArr ? void 0 : keysFunc(value);
-  arrayEach(props || value, function(subValue, key2) {
-    if (props) {
-      key2 = subValue;
-      subValue = value[key2];
-    }
-    assignValue(result, key2, baseClone(subValue, bitmask, customizer, key2, value, stack));
-  });
-  return result;
-}
-var CLONE_DEEP_FLAG = 1, CLONE_SYMBOLS_FLAG = 4;
-function cloneDeep(value) {
-  return baseClone(value, CLONE_DEEP_FLAG | CLONE_SYMBOLS_FLAG);
-}
-var HASH_UNDEFINED = "__lodash_hash_undefined__";
-function setCacheAdd(value) {
-  this.__data__.set(value, HASH_UNDEFINED);
-  return this;
-}
-function setCacheHas(value) {
-  return this.__data__.has(value);
-}
-function SetCache(values) {
-  var index = -1, length = values == null ? 0 : values.length;
-  this.__data__ = new MapCache();
-  while (++index < length) {
-    this.add(values[index]);
-  }
-}
-SetCache.prototype.add = SetCache.prototype.push = setCacheAdd;
-SetCache.prototype.has = setCacheHas;
-function arraySome(array, predicate) {
-  var index = -1, length = array == null ? 0 : array.length;
-  while (++index < length) {
-    if (predicate(array[index], index, array)) {
-      return true;
-    }
-  }
-  return false;
-}
-function cacheHas(cache, key) {
-  return cache.has(key);
-}
-var COMPARE_PARTIAL_FLAG$3 = 1, COMPARE_UNORDERED_FLAG$1 = 2;
-function equalArrays(array, other, bitmask, customizer, equalFunc, stack) {
-  var isPartial = bitmask & COMPARE_PARTIAL_FLAG$3, arrLength = array.length, othLength = other.length;
-  if (arrLength != othLength && !(isPartial && othLength > arrLength)) {
-    return false;
-  }
-  var arrStacked = stack.get(array);
-  var othStacked = stack.get(other);
-  if (arrStacked && othStacked) {
-    return arrStacked == other && othStacked == array;
-  }
-  var index = -1, result = true, seen = bitmask & COMPARE_UNORDERED_FLAG$1 ? new SetCache() : void 0;
-  stack.set(array, other);
-  stack.set(other, array);
-  while (++index < arrLength) {
-    var arrValue = array[index], othValue = other[index];
-    if (customizer) {
-      var compared = isPartial ? customizer(othValue, arrValue, index, other, array, stack) : customizer(arrValue, othValue, index, array, other, stack);
-    }
-    if (compared !== void 0) {
-      if (compared) {
-        continue;
-      }
-      result = false;
-      break;
-    }
-    if (seen) {
-      if (!arraySome(other, function(othValue2, othIndex) {
-        if (!cacheHas(seen, othIndex) && (arrValue === othValue2 || equalFunc(arrValue, othValue2, bitmask, customizer, stack))) {
-          return seen.push(othIndex);
-        }
-      })) {
-        result = false;
-        break;
-      }
-    } else if (!(arrValue === othValue || equalFunc(arrValue, othValue, bitmask, customizer, stack))) {
-      result = false;
-      break;
-    }
-  }
-  stack["delete"](array);
-  stack["delete"](other);
-  return result;
-}
-function mapToArray(map) {
-  var index = -1, result = Array(map.size);
-  map.forEach(function(value, key) {
-    result[++index] = [key, value];
-  });
-  return result;
-}
-function setToArray(set) {
-  var index = -1, result = Array(set.size);
-  set.forEach(function(value) {
-    result[++index] = value;
-  });
-  return result;
-}
-var COMPARE_PARTIAL_FLAG$2 = 1, COMPARE_UNORDERED_FLAG = 2;
-var boolTag = "[object Boolean]", dateTag = "[object Date]", errorTag = "[object Error]", mapTag = "[object Map]", numberTag = "[object Number]", regexpTag = "[object RegExp]", setTag = "[object Set]", stringTag = "[object String]", symbolTag = "[object Symbol]";
-var arrayBufferTag = "[object ArrayBuffer]", dataViewTag = "[object DataView]";
-var symbolProto = Symbol$1 ? Symbol$1.prototype : void 0, symbolValueOf = symbolProto ? symbolProto.valueOf : void 0;
-function equalByTag(object, other, tag, bitmask, customizer, equalFunc, stack) {
-  switch (tag) {
-    case dataViewTag:
-      if (object.byteLength != other.byteLength || object.byteOffset != other.byteOffset) {
-        return false;
-      }
-      object = object.buffer;
-      other = other.buffer;
-    case arrayBufferTag:
-      if (object.byteLength != other.byteLength || !equalFunc(new Uint8Array$1(object), new Uint8Array$1(other))) {
-        return false;
-      }
-      return true;
-    case boolTag:
-    case dateTag:
-    case numberTag:
-      return eq(+object, +other);
-    case errorTag:
-      return object.name == other.name && object.message == other.message;
-    case regexpTag:
-    case stringTag:
-      return object == other + "";
-    case mapTag:
-      var convert = mapToArray;
-    case setTag:
-      var isPartial = bitmask & COMPARE_PARTIAL_FLAG$2;
-      convert || (convert = setToArray);
-      if (object.size != other.size && !isPartial) {
-        return false;
-      }
-      var stacked = stack.get(object);
-      if (stacked) {
-        return stacked == other;
-      }
-      bitmask |= COMPARE_UNORDERED_FLAG;
-      stack.set(object, other);
-      var result = equalArrays(convert(object), convert(other), bitmask, customizer, equalFunc, stack);
-      stack["delete"](object);
-      return result;
-    case symbolTag:
-      if (symbolValueOf) {
-        return symbolValueOf.call(object) == symbolValueOf.call(other);
-      }
-  }
-  return false;
-}
-var COMPARE_PARTIAL_FLAG$1 = 1;
-var objectProto$1 = Object.prototype;
-var hasOwnProperty$1 = objectProto$1.hasOwnProperty;
-function equalObjects(object, other, bitmask, customizer, equalFunc, stack) {
-  var isPartial = bitmask & COMPARE_PARTIAL_FLAG$1, objProps = getAllKeys(object), objLength = objProps.length, othProps = getAllKeys(other), othLength = othProps.length;
-  if (objLength != othLength && !isPartial) {
-    return false;
-  }
-  var index = objLength;
-  while (index--) {
-    var key = objProps[index];
-    if (!(isPartial ? key in other : hasOwnProperty$1.call(other, key))) {
-      return false;
-    }
-  }
-  var objStacked = stack.get(object);
-  var othStacked = stack.get(other);
-  if (objStacked && othStacked) {
-    return objStacked == other && othStacked == object;
-  }
-  var result = true;
-  stack.set(object, other);
-  stack.set(other, object);
-  var skipCtor = isPartial;
-  while (++index < objLength) {
-    key = objProps[index];
-    var objValue = object[key], othValue = other[key];
-    if (customizer) {
-      var compared = isPartial ? customizer(othValue, objValue, key, other, object, stack) : customizer(objValue, othValue, key, object, other, stack);
-    }
-    if (!(compared === void 0 ? objValue === othValue || equalFunc(objValue, othValue, bitmask, customizer, stack) : compared)) {
-      result = false;
-      break;
-    }
-    skipCtor || (skipCtor = key == "constructor");
-  }
-  if (result && !skipCtor) {
-    var objCtor = object.constructor, othCtor = other.constructor;
-    if (objCtor != othCtor && ("constructor" in object && "constructor" in other) && !(typeof objCtor == "function" && objCtor instanceof objCtor && typeof othCtor == "function" && othCtor instanceof othCtor)) {
-      result = false;
-    }
-  }
-  stack["delete"](object);
-  stack["delete"](other);
-  return result;
-}
-var COMPARE_PARTIAL_FLAG = 1;
-var argsTag = "[object Arguments]", arrayTag = "[object Array]", objectTag = "[object Object]";
-var objectProto = Object.prototype;
-var hasOwnProperty = objectProto.hasOwnProperty;
-function baseIsEqualDeep(object, other, bitmask, customizer, equalFunc, stack) {
-  var objIsArr = isArray(object), othIsArr = isArray(other), objTag = objIsArr ? arrayTag : getTag(object), othTag = othIsArr ? arrayTag : getTag(other);
-  objTag = objTag == argsTag ? objectTag : objTag;
-  othTag = othTag == argsTag ? objectTag : othTag;
-  var objIsObj = objTag == objectTag, othIsObj = othTag == objectTag, isSameTag = objTag == othTag;
-  if (isSameTag && isBuffer(object)) {
-    if (!isBuffer(other)) {
-      return false;
-    }
-    objIsArr = true;
-    objIsObj = false;
-  }
-  if (isSameTag && !objIsObj) {
-    stack || (stack = new Stack());
-    return objIsArr || isTypedArray(object) ? equalArrays(object, other, bitmask, customizer, equalFunc, stack) : equalByTag(object, other, objTag, bitmask, customizer, equalFunc, stack);
-  }
-  if (!(bitmask & COMPARE_PARTIAL_FLAG)) {
-    var objIsWrapped = objIsObj && hasOwnProperty.call(object, "__wrapped__"), othIsWrapped = othIsObj && hasOwnProperty.call(other, "__wrapped__");
-    if (objIsWrapped || othIsWrapped) {
-      var objUnwrapped = objIsWrapped ? object.value() : object, othUnwrapped = othIsWrapped ? other.value() : other;
-      stack || (stack = new Stack());
-      return equalFunc(objUnwrapped, othUnwrapped, bitmask, customizer, stack);
-    }
-  }
-  if (!isSameTag) {
-    return false;
-  }
-  stack || (stack = new Stack());
-  return equalObjects(object, other, bitmask, customizer, equalFunc, stack);
-}
-function baseIsEqual(value, other, bitmask, customizer, stack) {
-  if (value === other) {
-    return true;
-  }
-  if (value == null || other == null || !isObjectLike(value) && !isObjectLike(other)) {
-    return value !== value && other !== other;
-  }
-  return baseIsEqualDeep(value, other, bitmask, customizer, baseIsEqual, stack);
-}
-function isEqual(value, other) {
-  return baseIsEqual(value, other);
-}
 const isPackaged = ["true"].includes(process.env.IS_PACKAGED);
 const extraResolve = (filePath) => {
   const basePath = isPackaged ? process.resourcesPath : "electron/resources";
@@ -2152,7 +1865,7 @@ const extraResolve = (filePath) => {
 const buildResolve = (value) => resolve(`electron/resources/build/${value}`);
 function createProxy(targetObject, methodNames) {
   return methodNames.reduce((proxyObj, methodName) => {
-    proxyObj[methodName] = (...args2) => targetObject[methodName](...cloneDeep(args2));
+    proxyObj[methodName] = (...args) => targetObject[methodName](...cloneDeep(args));
     return proxyObj;
   }, {});
 }
@@ -2185,7 +1898,7 @@ const log = {
   levels,
   functions: createProxy(log$1, levels),
   getFilePath,
-  openInEditor: () => shell$1.openPath(getFilePath())
+  openInEditor: () => shell.openPath(getFilePath())
 };
 const isObject = (value) => {
   const type = typeof value;
@@ -2352,7 +2065,7 @@ function setProperty(object, path2, value) {
   if (!isObject(object) || typeof path2 !== "string") {
     return object;
   }
-  const root2 = object;
+  const root = object;
   const pathArray = getPathSegments(path2);
   for (let index = 0; index < pathArray.length; index++) {
     const key = pathArray[index];
@@ -2364,7 +2077,7 @@ function setProperty(object, path2, value) {
     }
     object = object[key];
   }
-  return root2;
+  return root;
 }
 function deleteProperty(object, path2) {
   if (!isObject(object) || typeof path2 !== "string") {
@@ -2452,14 +2165,14 @@ function envPaths(name, { suffix = "nodejs" } = {}) {
   return linux(name);
 }
 const attemptifyAsync = (fn, onError) => {
-  return function attemptified(...args2) {
-    return fn.apply(void 0, args2).catch(onError);
+  return function attemptified(...args) {
+    return fn.apply(void 0, args).catch(onError);
   };
 };
 const attemptifySync = (fn, onError) => {
-  return function attemptified(...args2) {
+  return function attemptified(...args) {
     try {
-      return fn.apply(void 0, args2);
+      return fn.apply(void 0, args);
     } catch (error) {
       return onError(error);
     }
@@ -2554,7 +2267,7 @@ class RetryfyQueue {
 const RetryfyQueue$1 = new RetryfyQueue();
 const retryifyAsync = (fn, isRetriableError) => {
   return function retrified(timestamp) {
-    return function attempt(...args2) {
+    return function attempt(...args) {
       return RetryfyQueue$1.schedule().then((cleanup) => {
         const onResolve = (result) => {
           cleanup();
@@ -2567,25 +2280,25 @@ const retryifyAsync = (fn, isRetriableError) => {
           if (isRetriableError(error)) {
             const delay = Math.round(100 * Math.random());
             const delayPromise = new Promise((resolve2) => setTimeout(resolve2, delay));
-            return delayPromise.then(() => attempt.apply(void 0, args2));
+            return delayPromise.then(() => attempt.apply(void 0, args));
           }
           throw error;
         };
-        return fn.apply(void 0, args2).then(onResolve, onReject);
+        return fn.apply(void 0, args).then(onResolve, onReject);
       });
     };
   };
 };
 const retryifySync = (fn, isRetriableError) => {
   return function retrified(timestamp) {
-    return function attempt(...args2) {
+    return function attempt(...args) {
       try {
-        return fn.apply(void 0, args2);
+        return fn.apply(void 0, args);
       } catch (error) {
         if (Date.now() > timestamp)
           throw error;
         if (isRetriableError(error))
-          return attempt.apply(void 0, args2);
+          return attempt.apply(void 0, args);
         throw error;
       }
     };
@@ -3120,8 +2833,8 @@ class Conf {
   
       @param keys - The keys of the items to reset.
       */
-  reset(...keys2) {
-    for (const key of keys2) {
+  reset(...keys) {
+    for (const key of keys) {
       if (isExist(__privateGet(this, _defaultValues)[key])) {
         this.set(key, __privateGet(this, _defaultValues)[key]);
       }
@@ -3415,7 +3128,7 @@ class ElectronStore extends Conf {
     initDataListener();
   }
   async openInEditor() {
-    const error = await shell$1.openPath(this.path);
+    const error = await shell.openPath(this.path);
     if (error) {
       throw new Error(error);
     }
@@ -3517,10 +3230,10 @@ const handles = (mainWindow2) => {
     }
   );
   ipcMain.handle("open-path", async (_, pathValue) => {
-    return shell$1.openPath(pathValue);
+    return shell.openPath(pathValue);
   });
   ipcMain.handle("show-item-in-folder", async (_, filePath) => {
-    return shell$1.showItemInFolder(filePath);
+    return shell.showItemInFolder(filePath);
   });
   ipcMain.handle(
     "show-save-dialog",
@@ -3688,17 +3401,17 @@ function initControlWindow(mainWindow2) {
   loadPage(controlWindow, "control/");
   return controlWindow;
 }
-async function openControlWindow(win, data, args2 = {}) {
-  if (args2.sleep) {
-    await sleep(args2.sleep);
+async function openControlWindow(win, data, args = {}) {
+  if (args.sleep) {
+    await sleep(args.sleep);
   }
   win.show();
   win.webContents.send("device-change", data);
 }
 function menu(controlWindow) {
   ipcMain.on("open-system-menu", openSystemMenu);
-  function openSystemMenu(event, args2 = {}) {
-    const { options = [], channel = "system-menu-click" } = args2;
+  function openSystemMenu(event, args = {}) {
+    const { options = [], channel = "system-menu-click" } = args;
     const template = options.map((item) => {
       return {
         label: item.label,
@@ -3747,6 +3460,7 @@ if (!debug) {
     "If you need to generate and view the running log, please start the debugging function on the preference setting page"
   );
 }
+remote.initialize();
 contextMenu({
   showCopyImage: false,
   showSelectAll: false,
@@ -3761,16 +3475,20 @@ console.log("1!!", WEB_SERVER_PATH);
 let mainWindow;
 let webServer;
 function startWebServer() {
+  console.log("开始启动Web服务器...");
+  console.log("服务器路径:", WEB_SERVER_PATH);
   webServer = spawn("node", [WEB_SERVER_PATH], {
     stdio: "inherit"
   });
   webServer.on("error", (err) => {
+    console.error("Web服务器启动失败:", err);
     log.error("Web服务器启动失败:", err);
   });
   webServer.on("close", (code) => {
+    console.log(`Web服务器退出，退出码: ${code}`);
     log.info(`Web服务器退出，退出码: ${code}`);
   });
-  console.log("success");
+  console.log("Web服务器启动成功");
 }
 const readUserData = () => {
   try {
@@ -3809,6 +3527,7 @@ function createWindow() {
   remote.initialize();
   mainWindow.on("ready-to-show", () => {
     mainWindow.show();
+    console.log("主窗口创建成功");
   });
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -3825,11 +3544,15 @@ ipcMain.handle("save-user-data", (event, users) => {
   saveUserData(users);
 });
 app.whenReady().then(() => {
+  console.log("Electron应用准备就绪");
   electronApp.setAppUserModelId("com.viarotel.escrcpy");
-  app.on("browser-window-created", (_, window) => {
-    optimizer.watchWindowShortcuts(window);
+  app.on("browser-window-created", (_, window2) => {
+    optimizer.watchWindowShortcuts(window2);
   });
+  console.log("准备启动Web服务器...");
   startWebServer();
+  console.log("准备创建主窗口...");
+  createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

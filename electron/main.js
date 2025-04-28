@@ -1,7 +1,9 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { electronApp, optimizer } from '@electron-toolkit/utils'
+import remote from '@electron/remote/main'
 import contextMenu from 'electron-context-menu'
 import { spawn } from 'child_process'
 import fs from 'fs'
@@ -29,6 +31,9 @@ if (!debug) {
     'If you need to generate and view the running log, please start the debugging function on the preference setting page'
   )
 }
+
+// 初始化remote模块
+remote.initialize()
 
 contextMenu({
   showCopyImage: false,
@@ -60,19 +65,24 @@ let webServer
 
 // 启动Web服务器
 function startWebServer() {
+  console.log("开始启动Web服务器...")
+  console.log("服务器路径:", WEB_SERVER_PATH)
+
   webServer = spawn('node', [WEB_SERVER_PATH], {
     stdio: 'inherit'
   })
 
   webServer.on('error', (err) => {
+    console.error('Web服务器启动失败:', err)
     log.error('Web服务器启动失败:', err)
   })
 
   webServer.on('close', (code) => {
+    console.log(`Web服务器退出，退出码: ${code}`)
     log.info(`Web服务器退出，退出码: ${code}`)
   })
 
-  console.log("success")
+  console.log("Web服务器启动成功")
 }
 
 // 读取用户数据
@@ -118,6 +128,7 @@ function createWindow() {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    console.log("主窗口创建成功")
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -142,14 +153,17 @@ ipcMain.handle('save-user-data', (event, users) => {
 })
 
 app.whenReady().then(() => {
+  console.log("Electron应用准备就绪")
   electronApp.setAppUserModelId('com.viarotel.escrcpy')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  console.log("准备启动Web服务器...")
   startWebServer()
-  //createWindow()
+  console.log("准备创建主窗口...")
+  createWindow()
 
 
   // macOS 中应用被激活
