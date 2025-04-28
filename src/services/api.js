@@ -1,7 +1,6 @@
 import axios from 'axios'
-import { useUserStore } from '$/store/user/index.js'
 
-const API_BASE_URL = 'http://localhost:3000/api' // Web后台API地址
+const API_BASE_URL = 'http://localhost:3888/api' // Web后台API地址
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -14,7 +13,11 @@ const HEARTBEAT_INTERVAL = 30000
 class APIService {
   constructor() {
     this.heartbeatTimer = null
-    this.userStore = useUserStore()
+  }
+
+  // 设置用户store
+  setUserStore(userStore) {
+    this.userStore = userStore
   }
 
   // 初始化API服务
@@ -53,6 +56,29 @@ class APIService {
     } catch (error) {
       console.error('心跳检测失败:', error)
       // 可以在这里添加重连逻辑
+    }
+  }
+
+  // 用户登录
+  async login(username, password) {
+    try {
+      const response = await api.post('/login', {
+        username,
+        password
+      })
+      return response.data
+    } catch (error) {
+      throw new Error(error.response?.data?.message || '登录失败')
+    }
+  }
+
+  // 用户注册
+  async register(userData) {
+    try {
+      const response = await api.post('/register', userData)
+      return response.data
+    } catch (error) {
+      throw new Error(error.response?.data?.message || '注册失败')
     }
   }
 

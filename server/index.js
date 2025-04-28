@@ -42,6 +42,80 @@ const authenticateToken = (req, res, next) => {
   })
 }
 
+// 用户登录
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body
+  const user = users.find(u => u.username === username && u.password === password)
+
+  if (!user) {
+    return res.status(401).json({ error: '用户名或密码错误' })
+  }
+
+  // 更新最后登录时间
+  user.lastLoginAt = new Date().toISOString()
+
+  // 生成JWT令牌
+  const token = jwt.sign(
+    { username: user.username, permissions: user.permissions },
+    JWT_SECRET,
+    { expiresIn: '24h' }
+  )
+
+  res.json({
+    token,
+    user: {
+      username: user.username,
+      permissions: user.permissions,
+      role: user.permissions.includes('admin') ? 'admin' : 'user',
+      lastLoginAt: user.lastLoginAt,
+      description: user.description || '',
+      avatar: user.avatar || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
+    }
+  })
+})
+
+// 用户注册
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body
+
+  // 检查用户名是否已存在
+  if (users.some(u => u.username === username)) {
+    return res.status(400).json({ error: '用户名已存在' })
+  }
+
+  // 创建新用户
+  const newUser = {
+    username,
+    password,
+    permissions: ['user'],
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+    description: '这是一个新用户，点击编辑添加个人描述',
+    avatar: 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
+  }
+
+  users.push(newUser)
+
+  // 生成JWT令牌
+  const token = jwt.sign(
+    { username: newUser.username, permissions: newUser.permissions },
+    JWT_SECRET,
+    { expiresIn: '24h' }
+  )
+
+  res.status(201).json({
+    token,
+    user: {
+      username: newUser.username,
+      permissions: newUser.permissions,
+      role: 'user',
+      lastLoginAt: newUser.lastLoginAt,
+      description: newUser.description,
+      avatar: newUser.avatar
+    }
+  })
+})
+
 // 心跳检测接口
 app.post('/api/heartbeat', (req, res) => {
   const { token, username } = req.body
@@ -167,6 +241,8 @@ app.listen(PORT, () => {
 
   // 打印可用的API端点
   console.log('\n📋 可用的API端点:')
+  console.log('POST /api/login - 用户登录')
+  console.log('POST /api/register - 用户注册')
   console.log('POST /api/heartbeat - 心跳检测')
   console.log('GET  /api/users - 获取用户列表')
   console.log('POST /api/users - 创建新用户')

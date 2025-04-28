@@ -107,6 +107,7 @@ const saveUserData = (users) => {
 }
 
 function createWindow() {
+  console.log("开始创建主窗口...")
   mainWindow = new BrowserWindow({
     icon: getLogoPath(),
     show: false,
@@ -120,15 +121,17 @@ function createWindow() {
       nodeIntegration: true,
       sandbox: false,
       spellcheck: false,
+      contextIsolation: false,
+      enableRemoteModule: true
     },
   })
 
+  console.log("主窗口创建完成，初始化remote...")
   remote.enable(mainWindow.webContents)
-  remote.initialize()
 
   mainWindow.on('ready-to-show', () => {
+    console.log("主窗口准备显示...")
     mainWindow.show()
-    console.log("主窗口创建成功")
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -136,11 +139,16 @@ function createWindow() {
     return { action: 'deny' }
   })
 
+  console.log("加载页面...")
   loadPage(mainWindow)
 
+  console.log("初始化IPC...")
   ipc(mainWindow)
 
+  console.log("初始化控制模块...")
   control(mainWindow)
+
+  console.log("主窗口创建流程完成")
 }
 
 // 处理用户数据相关的IPC消息
