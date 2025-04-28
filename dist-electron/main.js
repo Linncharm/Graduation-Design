@@ -26,12 +26,13 @@ var _validator, _encryptionKey, _options, _defaultValues;
 import { createRequire } from "node:module";
 import path, { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import require$$0 from "events";
-import electron, { app, session, ipcMain, BrowserWindow, shell, dialog, nativeTheme, Tray, Menu } from "electron";
+import electron, { BrowserWindow, app, shell as shell$1, ipcMain, dialog, nativeTheme, Tray, Menu } from "electron";
 import process$1 from "node:process";
 import emojiRegex from "emoji-regex";
 import fs from "node:fs";
 import extName from "ext-name";
+import { spawn } from "child_process";
+import fs$2 from "fs";
 import execa from "execa";
 import os, { userInfo } from "node:os";
 import log$1 from "electron-log/main.js";
@@ -43,793 +44,6 @@ import ajvFormatsModule from "ajv-formats";
 import semver from "semver";
 import which from "which";
 import fs$1 from "fs-extra";
-var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
-function getDefaultExportFromCjs(x) {
-  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
-}
-var main$1 = {};
-var server = { exports: {} };
-var objectsRegistry = {};
-Object.defineProperty(objectsRegistry, "__esModule", { value: true });
-const getOwnerKey = (webContents2, contextId) => {
-  return `${webContents2.id}-${contextId}`;
-};
-class ObjectsRegistry {
-  constructor() {
-    this.nextId = 0;
-    this.storage = {};
-    this.owners = {};
-    this.electronIds = /* @__PURE__ */ new WeakMap();
-  }
-  // Register a new object and return its assigned ID. If the object is already
-  // registered then the already assigned ID would be returned.
-  add(webContents2, contextId, obj) {
-    const id = this.saveToStorage(obj);
-    const ownerKey = getOwnerKey(webContents2, contextId);
-    let owner = this.owners[ownerKey];
-    if (!owner) {
-      owner = this.owners[ownerKey] = /* @__PURE__ */ new Map();
-      this.registerDeleteListener(webContents2, contextId);
-    }
-    if (!owner.has(id)) {
-      owner.set(id, 0);
-      this.storage[id].count++;
-    }
-    owner.set(id, owner.get(id) + 1);
-    return id;
-  }
-  // Get an object according to its ID.
-  get(id) {
-    const pointer = this.storage[id];
-    if (pointer != null)
-      return pointer.object;
-  }
-  // Dereference an object according to its ID.
-  // Note that an object may be double-freed (cleared when page is reloaded, and
-  // then garbage collected in old page).
-  remove(webContents2, contextId, id) {
-    const ownerKey = getOwnerKey(webContents2, contextId);
-    const owner = this.owners[ownerKey];
-    if (owner && owner.has(id)) {
-      const newRefCount = owner.get(id) - 1;
-      if (newRefCount <= 0) {
-        owner.delete(id);
-        this.dereference(id);
-      } else {
-        owner.set(id, newRefCount);
-      }
-    }
-  }
-  // Clear all references to objects refrenced by the WebContents.
-  clear(webContents2, contextId) {
-    const ownerKey = getOwnerKey(webContents2, contextId);
-    const owner = this.owners[ownerKey];
-    if (!owner)
-      return;
-    for (const id of owner.keys())
-      this.dereference(id);
-    delete this.owners[ownerKey];
-  }
-  // Saves the object into storage and assigns an ID for it.
-  saveToStorage(object) {
-    let id = this.electronIds.get(object);
-    if (!id) {
-      id = ++this.nextId;
-      this.storage[id] = {
-        count: 0,
-        object
-      };
-      this.electronIds.set(object, id);
-    }
-    return id;
-  }
-  // Dereference the object from store.
-  dereference(id) {
-    const pointer = this.storage[id];
-    if (pointer == null) {
-      return;
-    }
-    pointer.count -= 1;
-    if (pointer.count === 0) {
-      this.electronIds.delete(pointer.object);
-      delete this.storage[id];
-    }
-  }
-  // Clear the storage when renderer process is destroyed.
-  registerDeleteListener(webContents2, contextId) {
-    const processHostId = contextId.split("-")[0];
-    const listener = (_, deletedProcessHostId) => {
-      if (deletedProcessHostId && deletedProcessHostId.toString() === processHostId) {
-        webContents2.removeListener("render-view-deleted", listener);
-        this.clear(webContents2, contextId);
-      }
-    };
-    webContents2.on("render-view-deleted", listener);
-  }
-}
-objectsRegistry.default = new ObjectsRegistry();
-var typeUtils = {};
-Object.defineProperty(typeUtils, "__esModule", { value: true });
-typeUtils.deserialize = typeUtils.serialize = typeUtils.isSerializableObject = typeUtils.isPromise = void 0;
-const electron_1 = electron;
-function isPromise(val) {
-  return val && val.then && val.then instanceof Function && val.constructor && val.constructor.reject && val.constructor.reject instanceof Function && val.constructor.resolve && val.constructor.resolve instanceof Function;
-}
-typeUtils.isPromise = isPromise;
-const serializableTypes = [
-  Boolean,
-  Number,
-  String,
-  Date,
-  Error,
-  RegExp,
-  ArrayBuffer
-];
-function isSerializableObject(value) {
-  return value === null || ArrayBuffer.isView(value) || serializableTypes.some((type) => value instanceof type);
-}
-typeUtils.isSerializableObject = isSerializableObject;
-const objectMap = function(source, mapper) {
-  const sourceEntries = Object.entries(source);
-  const targetEntries = sourceEntries.map(([key, val]) => [key, mapper(val)]);
-  return Object.fromEntries(targetEntries);
-};
-function serializeNativeImage(image) {
-  const representations = [];
-  const scaleFactors = image.getScaleFactors();
-  if (scaleFactors.length === 1) {
-    const scaleFactor = scaleFactors[0];
-    const size = image.getSize(scaleFactor);
-    const buffer = image.toBitmap({ scaleFactor });
-    representations.push({ scaleFactor, size, buffer });
-  } else {
-    for (const scaleFactor of scaleFactors) {
-      const size = image.getSize(scaleFactor);
-      const dataURL = image.toDataURL({ scaleFactor });
-      representations.push({ scaleFactor, size, dataURL });
-    }
-  }
-  return { __ELECTRON_SERIALIZED_NativeImage__: true, representations };
-}
-function deserializeNativeImage(value) {
-  const image = electron_1.nativeImage.createEmpty();
-  if (value.representations.length === 1) {
-    const { buffer, size, scaleFactor } = value.representations[0];
-    const { width, height } = size;
-    image.addRepresentation({ buffer, scaleFactor, width, height });
-  } else {
-    for (const rep of value.representations) {
-      const { dataURL, size, scaleFactor } = rep;
-      const { width, height } = size;
-      image.addRepresentation({ dataURL, scaleFactor, width, height });
-    }
-  }
-  return image;
-}
-function serialize(value) {
-  if (value && value.constructor && value.constructor.name === "NativeImage") {
-    return serializeNativeImage(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map(serialize);
-  } else if (isSerializableObject(value)) {
-    return value;
-  } else if (value instanceof Object) {
-    return objectMap(value, serialize);
-  } else {
-    return value;
-  }
-}
-typeUtils.serialize = serialize;
-function deserialize(value) {
-  if (value && value.__ELECTRON_SERIALIZED_NativeImage__) {
-    return deserializeNativeImage(value);
-  } else if (Array.isArray(value)) {
-    return value.map(deserialize);
-  } else if (isSerializableObject(value)) {
-    return value;
-  } else if (value instanceof Object) {
-    return objectMap(value, deserialize);
-  } else {
-    return value;
-  }
-}
-typeUtils.deserialize = deserialize;
-var getElectronBinding$1 = {};
-Object.defineProperty(getElectronBinding$1, "__esModule", { value: true });
-getElectronBinding$1.getElectronBinding = void 0;
-const getElectronBinding = (name) => {
-  if (process._linkedBinding) {
-    return process._linkedBinding("electron_common_" + name);
-  } else if (process.electronBinding) {
-    return process.electronBinding(name);
-  } else {
-    return null;
-  }
-};
-getElectronBinding$1.getElectronBinding = getElectronBinding;
-server.exports;
-(function(module2, exports2) {
-  var __importDefault = commonjsGlobal && commonjsGlobal.__importDefault || function(mod) {
-    return mod && mod.__esModule ? mod : { "default": mod };
-  };
-  Object.defineProperty(exports2, "__esModule", { value: true });
-  exports2.initialize = exports2.isInitialized = exports2.enable = exports2.isRemoteModuleEnabled = void 0;
-  const events_1 = require$$0;
-  const objects_registry_1 = __importDefault(objectsRegistry);
-  const type_utils_1 = typeUtils;
-  const electron_12 = electron;
-  const get_electron_binding_1 = getElectronBinding$1;
-  const { Promise: Promise2 } = commonjsGlobal;
-  const v8Util = get_electron_binding_1.getElectronBinding("v8_util");
-  const hasWebPrefsRemoteModuleAPI = (() => {
-    var _a, _b;
-    const electronVersion = Number((_b = (_a = process.versions.electron) === null || _a === void 0 ? void 0 : _a.split(".")) === null || _b === void 0 ? void 0 : _b[0]);
-    return Number.isNaN(electronVersion) || electronVersion < 14;
-  })();
-  const FUNCTION_PROPERTIES = [
-    "length",
-    "name",
-    "arguments",
-    "caller",
-    "prototype"
-  ];
-  const rendererFunctionCache = /* @__PURE__ */ new Map();
-  const finalizationRegistry = new FinalizationRegistry((fi) => {
-    const mapKey = fi.id[0] + "~" + fi.id[1];
-    const ref = rendererFunctionCache.get(mapKey);
-    if (ref !== void 0 && ref.deref() === void 0) {
-      rendererFunctionCache.delete(mapKey);
-      if (!fi.webContents.isDestroyed()) {
-        try {
-          fi.webContents.sendToFrame(fi.frameId, "REMOTE_RENDERER_RELEASE_CALLBACK", fi.id[0], fi.id[1]);
-        } catch (error) {
-          console.warn(`sendToFrame() failed: ${error}`);
-        }
-      }
-    }
-  });
-  function getCachedRendererFunction(id) {
-    const mapKey = id[0] + "~" + id[1];
-    const ref = rendererFunctionCache.get(mapKey);
-    if (ref !== void 0) {
-      const deref = ref.deref();
-      if (deref !== void 0)
-        return deref;
-    }
-  }
-  function setCachedRendererFunction(id, wc, frameId, value) {
-    const wr = new WeakRef(value);
-    const mapKey = id[0] + "~" + id[1];
-    rendererFunctionCache.set(mapKey, wr);
-    finalizationRegistry.register(value, {
-      id,
-      webContents: wc,
-      frameId
-    });
-    return value;
-  }
-  const locationInfo = /* @__PURE__ */ new WeakMap();
-  const getObjectMembers = function(object) {
-    let names = Object.getOwnPropertyNames(object);
-    if (typeof object === "function") {
-      names = names.filter((name) => {
-        return !FUNCTION_PROPERTIES.includes(name);
-      });
-    }
-    return names.map((name) => {
-      const descriptor = Object.getOwnPropertyDescriptor(object, name);
-      let type;
-      let writable = false;
-      if (descriptor.get === void 0 && typeof object[name] === "function") {
-        type = "method";
-      } else {
-        if (descriptor.set || descriptor.writable)
-          writable = true;
-        type = "get";
-      }
-      return { name, enumerable: descriptor.enumerable, writable, type };
-    });
-  };
-  const getObjectPrototype = function(object) {
-    const proto = Object.getPrototypeOf(object);
-    if (proto === null || proto === Object.prototype)
-      return null;
-    return {
-      members: getObjectMembers(proto),
-      proto: getObjectPrototype(proto)
-    };
-  };
-  const valueToMeta = function(sender, contextId, value, optimizeSimpleObject = false) {
-    let type;
-    switch (typeof value) {
-      case "object":
-        if (value instanceof Buffer) {
-          type = "buffer";
-        } else if (value && value.constructor && value.constructor.name === "NativeImage") {
-          type = "nativeimage";
-        } else if (Array.isArray(value)) {
-          type = "array";
-        } else if (value instanceof Error) {
-          type = "error";
-        } else if (type_utils_1.isSerializableObject(value)) {
-          type = "value";
-        } else if (type_utils_1.isPromise(value)) {
-          type = "promise";
-        } else if (Object.prototype.hasOwnProperty.call(value, "callee") && value.length != null) {
-          type = "array";
-        } else if (optimizeSimpleObject && v8Util.getHiddenValue(value, "simple")) {
-          type = "value";
-        } else {
-          type = "object";
-        }
-        break;
-      case "function":
-        type = "function";
-        break;
-      default:
-        type = "value";
-        break;
-    }
-    if (type === "array") {
-      return {
-        type,
-        members: value.map((el) => valueToMeta(sender, contextId, el, optimizeSimpleObject))
-      };
-    } else if (type === "nativeimage") {
-      return { type, value: type_utils_1.serialize(value) };
-    } else if (type === "object" || type === "function") {
-      return {
-        type,
-        name: value.constructor ? value.constructor.name : "",
-        // Reference the original value if it's an object, because when it's
-        // passed to renderer we would assume the renderer keeps a reference of
-        // it.
-        id: objects_registry_1.default.add(sender, contextId, value),
-        members: getObjectMembers(value),
-        proto: getObjectPrototype(value)
-      };
-    } else if (type === "buffer") {
-      return { type, value };
-    } else if (type === "promise") {
-      value.then(function() {
-      }, function() {
-      });
-      return {
-        type,
-        then: valueToMeta(sender, contextId, function(onFulfilled, onRejected) {
-          value.then(onFulfilled, onRejected);
-        })
-      };
-    } else if (type === "error") {
-      return {
-        type,
-        value,
-        members: Object.keys(value).map((name) => ({
-          name,
-          value: valueToMeta(sender, contextId, value[name])
-        }))
-      };
-    } else {
-      return {
-        type: "value",
-        value
-      };
-    }
-  };
-  const throwRPCError = function(message) {
-    const error = new Error(message);
-    error.code = "EBADRPC";
-    error.errno = -72;
-    throw error;
-  };
-  const removeRemoteListenersAndLogWarning = (sender, callIntoRenderer) => {
-    const location = locationInfo.get(callIntoRenderer);
-    let message = `Attempting to call a function in a renderer window that has been closed or released.
-Function provided here: ${location}`;
-    if (sender instanceof events_1.EventEmitter) {
-      const remoteEvents = sender.eventNames().filter((eventName) => {
-        return sender.listeners(eventName).includes(callIntoRenderer);
-      });
-      if (remoteEvents.length > 0) {
-        message += `
-Remote event names: ${remoteEvents.join(", ")}`;
-        remoteEvents.forEach((eventName) => {
-          sender.removeListener(eventName, callIntoRenderer);
-        });
-      }
-    }
-    console.warn(message);
-  };
-  const fakeConstructor = (constructor, name) => new Proxy(Object, {
-    get(target, prop, receiver) {
-      if (prop === "name") {
-        return name;
-      } else {
-        return Reflect.get(target, prop, receiver);
-      }
-    }
-  });
-  const unwrapArgs = function(sender, frameId, contextId, args2) {
-    const metaToValue = function(meta) {
-      switch (meta.type) {
-        case "nativeimage":
-          return type_utils_1.deserialize(meta.value);
-        case "value":
-          return meta.value;
-        case "remote-object":
-          return objects_registry_1.default.get(meta.id);
-        case "array":
-          return unwrapArgs(sender, frameId, contextId, meta.value);
-        case "buffer":
-          return Buffer.from(meta.value.buffer, meta.value.byteOffset, meta.value.byteLength);
-        case "promise":
-          return Promise2.resolve({
-            then: metaToValue(meta.then)
-          });
-        case "object": {
-          const ret = meta.name !== "Object" ? /* @__PURE__ */ Object.create({
-            constructor: fakeConstructor(Object, meta.name)
-          }) : {};
-          for (const { name, value } of meta.members) {
-            ret[name] = metaToValue(value);
-          }
-          return ret;
-        }
-        case "function-with-return-value": {
-          const returnValue = metaToValue(meta.value);
-          return function() {
-            return returnValue;
-          };
-        }
-        case "function": {
-          const objectId = [contextId, meta.id];
-          const cachedFunction = getCachedRendererFunction(objectId);
-          if (cachedFunction !== void 0) {
-            return cachedFunction;
-          }
-          const callIntoRenderer = function(...args3) {
-            let succeed = false;
-            if (!sender.isDestroyed()) {
-              try {
-                succeed = sender.sendToFrame(frameId, "REMOTE_RENDERER_CALLBACK", contextId, meta.id, valueToMeta(sender, contextId, args3)) !== false;
-              } catch (error) {
-                console.warn(`sendToFrame() failed: ${error}`);
-              }
-            }
-            if (!succeed) {
-              removeRemoteListenersAndLogWarning(this, callIntoRenderer);
-            }
-          };
-          locationInfo.set(callIntoRenderer, meta.location);
-          Object.defineProperty(callIntoRenderer, "length", { value: meta.length });
-          setCachedRendererFunction(objectId, sender, frameId, callIntoRenderer);
-          return callIntoRenderer;
-        }
-        default:
-          throw new TypeError(`Unknown type: ${meta.type}`);
-      }
-    };
-    return args2.map(metaToValue);
-  };
-  const isRemoteModuleEnabledImpl = function(contents) {
-    const webPreferences = contents.getLastWebPreferences() || {};
-    return webPreferences.enableRemoteModule != null ? !!webPreferences.enableRemoteModule : false;
-  };
-  const isRemoteModuleEnabledCache = /* @__PURE__ */ new WeakMap();
-  const isRemoteModuleEnabled = function(contents) {
-    if (hasWebPrefsRemoteModuleAPI && !isRemoteModuleEnabledCache.has(contents)) {
-      isRemoteModuleEnabledCache.set(contents, isRemoteModuleEnabledImpl(contents));
-    }
-    return isRemoteModuleEnabledCache.get(contents);
-  };
-  exports2.isRemoteModuleEnabled = isRemoteModuleEnabled;
-  function enable(contents) {
-    isRemoteModuleEnabledCache.set(contents, true);
-  }
-  exports2.enable = enable;
-  const handleRemoteCommand = function(channel, handler) {
-    electron_12.ipcMain.on(channel, (event, contextId, ...args2) => {
-      let returnValue;
-      if (!exports2.isRemoteModuleEnabled(event.sender)) {
-        event.returnValue = {
-          type: "exception",
-          value: valueToMeta(event.sender, contextId, new Error('@electron/remote is disabled for this WebContents. Call require("@electron/remote/main").enable(webContents) to enable it.'))
-        };
-        return;
-      }
-      try {
-        returnValue = handler(event, contextId, ...args2);
-      } catch (error) {
-        returnValue = {
-          type: "exception",
-          value: valueToMeta(event.sender, contextId, error)
-        };
-      }
-      if (returnValue !== void 0) {
-        event.returnValue = returnValue;
-      }
-    });
-  };
-  const emitCustomEvent = function(contents, eventName, ...args2) {
-    const event = { sender: contents, returnValue: void 0, defaultPrevented: false };
-    electron_12.app.emit(eventName, event, contents, ...args2);
-    contents.emit(eventName, event, ...args2);
-    return event;
-  };
-  const logStack = function(contents, code, stack) {
-    if (stack) {
-      console.warn(`WebContents (${contents.id}): ${code}`, stack);
-    }
-  };
-  let initialized = false;
-  function isInitialized2() {
-    return initialized;
-  }
-  exports2.isInitialized = isInitialized2;
-  function initialize() {
-    if (initialized)
-      throw new Error("@electron/remote has already been initialized");
-    initialized = true;
-    handleRemoteCommand("REMOTE_BROWSER_WRONG_CONTEXT_ERROR", function(event, contextId, passedContextId, id) {
-      const objectId = [passedContextId, id];
-      const cachedFunction = getCachedRendererFunction(objectId);
-      if (cachedFunction === void 0) {
-        return;
-      }
-      removeRemoteListenersAndLogWarning(event.sender, cachedFunction);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_REQUIRE", function(event, contextId, moduleName, stack) {
-      logStack(event.sender, `remote.require('${moduleName}')`, stack);
-      const customEvent = emitCustomEvent(event.sender, "remote-require", moduleName);
-      if (customEvent.returnValue === void 0) {
-        if (customEvent.defaultPrevented) {
-          throw new Error(`Blocked remote.require('${moduleName}')`);
-        } else {
-          if (process.mainModule) {
-            customEvent.returnValue = process.mainModule.require(moduleName);
-          } else {
-            let mainModule = module2;
-            while (mainModule.parent) {
-              mainModule = mainModule.parent;
-            }
-            customEvent.returnValue = mainModule.require(moduleName);
-          }
-        }
-      }
-      return valueToMeta(event.sender, contextId, customEvent.returnValue);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_GET_BUILTIN", function(event, contextId, moduleName, stack) {
-      logStack(event.sender, `remote.getBuiltin('${moduleName}')`, stack);
-      const customEvent = emitCustomEvent(event.sender, "remote-get-builtin", moduleName);
-      if (customEvent.returnValue === void 0) {
-        if (customEvent.defaultPrevented) {
-          throw new Error(`Blocked remote.getBuiltin('${moduleName}')`);
-        } else {
-          customEvent.returnValue = electron[moduleName];
-        }
-      }
-      return valueToMeta(event.sender, contextId, customEvent.returnValue);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_GET_GLOBAL", function(event, contextId, globalName, stack) {
-      logStack(event.sender, `remote.getGlobal('${globalName}')`, stack);
-      const customEvent = emitCustomEvent(event.sender, "remote-get-global", globalName);
-      if (customEvent.returnValue === void 0) {
-        if (customEvent.defaultPrevented) {
-          throw new Error(`Blocked remote.getGlobal('${globalName}')`);
-        } else {
-          customEvent.returnValue = commonjsGlobal[globalName];
-        }
-      }
-      return valueToMeta(event.sender, contextId, customEvent.returnValue);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_GET_CURRENT_WINDOW", function(event, contextId, stack) {
-      logStack(event.sender, "remote.getCurrentWindow()", stack);
-      const customEvent = emitCustomEvent(event.sender, "remote-get-current-window");
-      if (customEvent.returnValue === void 0) {
-        if (customEvent.defaultPrevented) {
-          throw new Error("Blocked remote.getCurrentWindow()");
-        } else {
-          customEvent.returnValue = event.sender.getOwnerBrowserWindow();
-        }
-      }
-      return valueToMeta(event.sender, contextId, customEvent.returnValue);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_GET_CURRENT_WEB_CONTENTS", function(event, contextId, stack) {
-      logStack(event.sender, "remote.getCurrentWebContents()", stack);
-      const customEvent = emitCustomEvent(event.sender, "remote-get-current-web-contents");
-      if (customEvent.returnValue === void 0) {
-        if (customEvent.defaultPrevented) {
-          throw new Error("Blocked remote.getCurrentWebContents()");
-        } else {
-          customEvent.returnValue = event.sender;
-        }
-      }
-      return valueToMeta(event.sender, contextId, customEvent.returnValue);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_CONSTRUCTOR", function(event, contextId, id, args2) {
-      args2 = unwrapArgs(event.sender, event.frameId, contextId, args2);
-      const constructor = objects_registry_1.default.get(id);
-      if (constructor == null) {
-        throwRPCError(`Cannot call constructor on missing remote object ${id}`);
-      }
-      return valueToMeta(event.sender, contextId, new constructor(...args2));
-    });
-    handleRemoteCommand("REMOTE_BROWSER_FUNCTION_CALL", function(event, contextId, id, args2) {
-      args2 = unwrapArgs(event.sender, event.frameId, contextId, args2);
-      const func = objects_registry_1.default.get(id);
-      if (func == null) {
-        throwRPCError(`Cannot call function on missing remote object ${id}`);
-      }
-      try {
-        return valueToMeta(event.sender, contextId, func(...args2), true);
-      } catch (error) {
-        const err = new Error(`Could not call remote function '${func.name || "anonymous"}'. Check that the function signature is correct. Underlying error: ${error}
-` + (error instanceof Error ? `Underlying stack: ${error.stack}
-` : ""));
-        err.cause = error;
-        throw err;
-      }
-    });
-    handleRemoteCommand("REMOTE_BROWSER_MEMBER_CONSTRUCTOR", function(event, contextId, id, method, args2) {
-      args2 = unwrapArgs(event.sender, event.frameId, contextId, args2);
-      const object = objects_registry_1.default.get(id);
-      if (object == null) {
-        throwRPCError(`Cannot call constructor '${method}' on missing remote object ${id}`);
-      }
-      return valueToMeta(event.sender, contextId, new object[method](...args2));
-    });
-    handleRemoteCommand("REMOTE_BROWSER_MEMBER_CALL", function(event, contextId, id, method, args2) {
-      args2 = unwrapArgs(event.sender, event.frameId, contextId, args2);
-      const object = objects_registry_1.default.get(id);
-      if (object == null) {
-        throwRPCError(`Cannot call method '${method}' on missing remote object ${id}`);
-      }
-      try {
-        return valueToMeta(event.sender, contextId, object[method](...args2), true);
-      } catch (error) {
-        const err = new Error(`Could not call remote method '${method}'. Check that the method signature is correct. Underlying error: ${error}` + (error instanceof Error ? `Underlying stack: ${error.stack}
-` : ""));
-        err.cause = error;
-        throw err;
-      }
-    });
-    handleRemoteCommand("REMOTE_BROWSER_MEMBER_SET", function(event, contextId, id, name, args2) {
-      args2 = unwrapArgs(event.sender, event.frameId, contextId, args2);
-      const obj = objects_registry_1.default.get(id);
-      if (obj == null) {
-        throwRPCError(`Cannot set property '${name}' on missing remote object ${id}`);
-      }
-      obj[name] = args2[0];
-      return null;
-    });
-    handleRemoteCommand("REMOTE_BROWSER_MEMBER_GET", function(event, contextId, id, name) {
-      const obj = objects_registry_1.default.get(id);
-      if (obj == null) {
-        throwRPCError(`Cannot get property '${name}' on missing remote object ${id}`);
-      }
-      return valueToMeta(event.sender, contextId, obj[name]);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_DEREFERENCE", function(event, contextId, id) {
-      objects_registry_1.default.remove(event.sender, contextId, id);
-    });
-    handleRemoteCommand("REMOTE_BROWSER_CONTEXT_RELEASE", (event, contextId) => {
-      objects_registry_1.default.clear(event.sender, contextId);
-      return null;
-    });
-  }
-  exports2.initialize = initialize;
-})(server, server.exports);
-var serverExports = server.exports;
-(function(exports2) {
-  Object.defineProperty(exports2, "__esModule", { value: true });
-  exports2.enable = exports2.isInitialized = exports2.initialize = void 0;
-  var server_1 = serverExports;
-  Object.defineProperty(exports2, "initialize", { enumerable: true, get: function() {
-    return server_1.initialize;
-  } });
-  Object.defineProperty(exports2, "isInitialized", { enumerable: true, get: function() {
-    return server_1.isInitialized;
-  } });
-  Object.defineProperty(exports2, "enable", { enumerable: true, get: function() {
-    return server_1.enable;
-  } });
-})(main$1);
-var main = main$1;
-const remote = /* @__PURE__ */ getDefaultExportFromCjs(main);
-const is = {
-  dev: !app.isPackaged
-};
-const platform = {
-  isWindows: process.platform === "win32",
-  isMacOS: process.platform === "darwin",
-  isLinux: process.platform === "linux"
-};
-const electronApp = {
-  setAppUserModelId(id) {
-    if (platform.isWindows)
-      app.setAppUserModelId(is.dev ? process.execPath : id);
-  },
-  setAutoLaunch(auto) {
-    if (platform.isLinux)
-      return false;
-    const isOpenAtLogin = () => {
-      return app.getLoginItemSettings().openAtLogin;
-    };
-    if (isOpenAtLogin() !== auto) {
-      app.setLoginItemSettings({
-        openAtLogin: auto,
-        path: process.execPath
-      });
-      return isOpenAtLogin() === auto;
-    } else {
-      return true;
-    }
-  },
-  skipProxy() {
-    return session.defaultSession.setProxy({ mode: "direct" });
-  }
-};
-const optimizer = {
-  watchWindowShortcuts(window2, shortcutOptions) {
-    if (!window2)
-      return;
-    const { webContents: webContents2 } = window2;
-    const { escToCloseWindow = false, zoom = false } = shortcutOptions || {};
-    webContents2.on("before-input-event", (event, input) => {
-      if (input.type === "keyDown") {
-        if (!is.dev) {
-          if (input.code === "KeyR" && (input.control || input.meta))
-            event.preventDefault();
-        } else {
-          if (input.code === "F12") {
-            if (webContents2.isDevToolsOpened()) {
-              webContents2.closeDevTools();
-            } else {
-              webContents2.openDevTools({ mode: "undocked" });
-              console.log("Open dev tool...");
-            }
-          }
-        }
-        if (escToCloseWindow) {
-          if (input.code === "Escape" && input.key !== "Process") {
-            window2.close();
-            event.preventDefault();
-          }
-        }
-        if (!zoom) {
-          if (input.code === "Minus" && (input.control || input.meta))
-            event.preventDefault();
-          if (input.code === "Equal" && input.shift && (input.control || input.meta))
-            event.preventDefault();
-        }
-      }
-    });
-  },
-  registerFramelessWindowIpc() {
-    ipcMain.on("win:invoke", (event, action) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (win) {
-        if (action === "show") {
-          win.show();
-        } else if (action === "showInactive") {
-          win.showInactive();
-        } else if (action === "min") {
-          win.minimize();
-        } else if (action === "max") {
-          const isMaximized = win.isMaximized();
-          if (isMaximized) {
-            win.unmaximize();
-          } else {
-            win.maximize();
-          }
-        } else if (action === "close") {
-          win.close();
-        }
-      }
-    });
-  }
-};
 function isFullwidthCodePoint(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -1355,7 +569,7 @@ const getFilenameFromMime = (name, mime) => {
   }
   return `${name}.${extensions[0].ext}`;
 };
-function registerListener(session2, options, callback = () => {
+function registerListener(session, options, callback = () => {
 }) {
   const downloadItems = /* @__PURE__ */ new Set();
   let receivedBytes = 0;
@@ -1434,7 +648,7 @@ function registerListener(session2, options, callback = () => {
         totalBytes = 0;
       }
       if (options.unregisterWhenDone) {
-        session2.removeListener("will-download", listener);
+        session.removeListener("will-download", listener);
       }
       if (state === "cancelled") {
         if (typeof options.onCancel === "function") {
@@ -1450,7 +664,7 @@ function registerListener(session2, options, callback = () => {
           app.dock.downloadFinished(savePath);
         }
         if (options.openFolderWhenDone) {
-          shell.showItemInFolder(savePath);
+          shell$1.showItemInFolder(savePath);
         }
         if (typeof options.onCompleted === "function") {
           options.onCompleted({
@@ -1470,7 +684,7 @@ function registerListener(session2, options, callback = () => {
       options.onStarted(item);
     }
   };
-  session2.on("will-download", listener);
+  session.on("will-download", listener);
 }
 async function download(window_, url, options) {
   return new Promise((resolve2, reject) => {
@@ -2029,7 +1243,7 @@ function getNative(object, key) {
   var value = getValue(object, key);
   return baseIsNative(value) ? value : void 0;
 }
-var WeakMap$1 = getNative(root, "WeakMap");
+var WeakMap2 = getNative(root, "WeakMap");
 var objectCreate = Object.create;
 var baseCreate = /* @__PURE__ */ function() {
   function object() {
@@ -2157,8 +1371,8 @@ function stubFalse() {
 var freeExports$2 = typeof exports == "object" && exports && !exports.nodeType && exports;
 var freeModule$2 = freeExports$2 && typeof module == "object" && module && !module.nodeType && module;
 var moduleExports$2 = freeModule$2 && freeModule$2.exports === freeExports$2;
-var Buffer$2 = moduleExports$2 ? root.Buffer : void 0;
-var nativeIsBuffer = Buffer$2 ? Buffer$2.isBuffer : void 0;
+var Buffer$1 = moduleExports$2 ? root.Buffer : void 0;
+var nativeIsBuffer = Buffer$1 ? Buffer$1.isBuffer : void 0;
 var isBuffer = nativeIsBuffer || stubFalse;
 var argsTag$2 = "[object Arguments]", arrayTag$2 = "[object Array]", boolTag$3 = "[object Boolean]", dateTag$3 = "[object Date]", errorTag$2 = "[object Error]", funcTag$1 = "[object Function]", mapTag$5 = "[object Map]", numberTag$3 = "[object Number]", objectTag$3 = "[object Object]", regexpTag$3 = "[object RegExp]", setTag$5 = "[object Set]", stringTag$3 = "[object String]", weakMapTag$2 = "[object WeakMap]";
 var arrayBufferTag$3 = "[object ArrayBuffer]", dataViewTag$4 = "[object DataView]", float32Tag$2 = "[object Float32Array]", float64Tag$2 = "[object Float64Array]", int8Tag$2 = "[object Int8Array]", int16Tag$2 = "[object Int16Array]", int32Tag$2 = "[object Int32Array]", uint8Tag$2 = "[object Uint8Array]", uint8ClampedTag$2 = "[object Uint8ClampedArray]", uint16Tag$2 = "[object Uint16Array]", uint32Tag$2 = "[object Uint32Array]";
@@ -2463,7 +1677,7 @@ function baseAssignIn(object, source) {
 var freeExports = typeof exports == "object" && exports && !exports.nodeType && exports;
 var freeModule = freeExports && typeof module == "object" && module && !module.nodeType && module;
 var moduleExports = freeModule && freeModule.exports === freeExports;
-var Buffer$1 = moduleExports ? root.Buffer : void 0, allocUnsafe = Buffer$1 ? Buffer$1.allocUnsafe : void 0;
+var Buffer2 = moduleExports ? root.Buffer : void 0, allocUnsafe = Buffer2 ? Buffer2.allocUnsafe : void 0;
 function cloneBuffer(buffer, isDeep) {
   if (isDeep) {
     return buffer.slice();
@@ -2527,9 +1741,9 @@ var Promise$1 = getNative(root, "Promise");
 var Set$1 = getNative(root, "Set");
 var mapTag$4 = "[object Map]", objectTag$2 = "[object Object]", promiseTag = "[object Promise]", setTag$4 = "[object Set]", weakMapTag$1 = "[object WeakMap]";
 var dataViewTag$3 = "[object DataView]";
-var dataViewCtorString = toSource(DataView), mapCtorString = toSource(Map$1), promiseCtorString = toSource(Promise$1), setCtorString = toSource(Set$1), weakMapCtorString = toSource(WeakMap$1);
+var dataViewCtorString = toSource(DataView), mapCtorString = toSource(Map$1), promiseCtorString = toSource(Promise$1), setCtorString = toSource(Set$1), weakMapCtorString = toSource(WeakMap2);
 var getTag = baseGetTag;
-if (DataView && getTag(new DataView(new ArrayBuffer(1))) != dataViewTag$3 || Map$1 && getTag(new Map$1()) != mapTag$4 || Promise$1 && getTag(Promise$1.resolve()) != promiseTag || Set$1 && getTag(new Set$1()) != setTag$4 || WeakMap$1 && getTag(new WeakMap$1()) != weakMapTag$1) {
+if (DataView && getTag(new DataView(new ArrayBuffer(1))) != dataViewTag$3 || Map$1 && getTag(new Map$1()) != mapTag$4 || Promise$1 && getTag(Promise$1.resolve()) != promiseTag || Set$1 && getTag(new Set$1()) != setTag$4 || WeakMap2 && getTag(new WeakMap2()) != weakMapTag$1) {
   getTag = function(value) {
     var result = baseGetTag(value), Ctor = result == objectTag$2 ? value.constructor : void 0, ctorString = Ctor ? toSource(Ctor) : "";
     if (ctorString) {
@@ -2971,7 +2185,7 @@ const log = {
   levels,
   functions: createProxy(log$1, levels),
   getFilePath,
-  openInEditor: () => shell.openPath(getFilePath())
+  openInEditor: () => shell$1.openPath(getFilePath())
 };
 const isObject = (value) => {
   const type = typeof value;
@@ -4201,7 +3415,7 @@ class ElectronStore extends Conf {
     initDataListener();
   }
   async openInEditor() {
-    const error = await shell.openPath(this.path);
+    const error = await shell$1.openPath(this.path);
     if (error) {
       throw new Error(error);
     }
@@ -4303,10 +3517,10 @@ const handles = (mainWindow2) => {
     }
   );
   ipcMain.handle("open-path", async (_, pathValue) => {
-    return shell.openPath(pathValue);
+    return shell$1.openPath(pathValue);
   });
   ipcMain.handle("show-item-in-folder", async (_, filePath) => {
-    return shell.showItemInFolder(filePath);
+    return shell$1.showItemInFolder(filePath);
   });
   ipcMain.handle(
     "show-save-dialog",
@@ -4541,7 +3755,40 @@ contextMenu({
   showInspectElement: !isPackaged$1
 });
 process.env.DIST = path.join(__dirname, "../dist");
+const USER_DATA_PATH = path.join(app.getPath("userData"), "users.json");
+const WEB_SERVER_PATH = path.join(__dirname, "../server/index.js");
+console.log("1!!", WEB_SERVER_PATH);
 let mainWindow;
+let webServer;
+function startWebServer() {
+  webServer = spawn("node", [WEB_SERVER_PATH], {
+    stdio: "inherit"
+  });
+  webServer.on("error", (err) => {
+    log.error("Web服务器启动失败:", err);
+  });
+  webServer.on("close", (code) => {
+    log.info(`Web服务器退出，退出码: ${code}`);
+  });
+  console.log("success");
+}
+const readUserData = () => {
+  try {
+    if (fs$2.existsSync(USER_DATA_PATH)) {
+      return JSON.parse(fs$2.readFileSync(USER_DATA_PATH, "utf-8"));
+    }
+  } catch (error) {
+    log.error("读取用户数据失败:", error);
+  }
+  return [];
+};
+const saveUserData = (users) => {
+  try {
+    fs$2.writeFileSync(USER_DATA_PATH, JSON.stringify(users, null, 2));
+  } catch (error) {
+    log.error("保存用户数据失败:", error);
+  }
+};
 function createWindow() {
   mainWindow = new BrowserWindow({
     icon: getLogoPath(),
@@ -4571,12 +3818,18 @@ function createWindow() {
   ipc(mainWindow);
   control();
 }
+ipcMain.handle("get-user-data", () => {
+  return readUserData();
+});
+ipcMain.handle("save-user-data", (event, users) => {
+  saveUserData(users);
+});
 app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.viarotel.escrcpy");
-  app.on("browser-window-created", (_, window2) => {
-    optimizer.watchWindowShortcuts(window2);
+  app.on("browser-window-created", (_, window) => {
+    optimizer.watchWindowShortcuts(window);
   });
-  createWindow();
+  startWebServer();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -4588,6 +3841,15 @@ app.whenReady().then(() => {
 });
 app.on("window-all-closed", () => {
   app.isQuiting = true;
+  if (webServer) {
+    webServer.kill();
+  }
   app.quit();
   mainWindow = null;
+});
+process.on("uncaughtException", (err) => {
+  log.error("未捕获的异常:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  log.error("未处理的Promise拒绝:", reason);
 });

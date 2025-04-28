@@ -41,12 +41,13 @@ import { i18n } from '$/locales/index.js'
 
 import localeModel from '$/plugins/element-plus/locale.js'
 import { usePreferenceStore } from '$/store/preference/index.js'
-
+import { useUserStore } from '$/store/user/index.js'
 import { useThemeStore } from '$/store/theme/index.js'
 import { ElMessageBox } from 'element-plus'
 import Device from './components/Device/index.vue'
 import Preference from './components/Preference/index.vue'
 import Quick from './components/Quick/index.vue'
+import User from './components/User/index.vue'
 
 const locale = computed(() => {
   const i18nLocale = i18n.global.locale.value
@@ -56,31 +57,57 @@ const locale = computed(() => {
   return value
 })
 
-const tabsModel = [
-  {
-    label: 'device.list',
-    value: 'Device',
-    component: Device,
-  },
-  {
-    label: 'preferences.name',
-    value: 'Preference',
-    component: Preference,
-  },
-]
+const userStore = useUserStore()
+const themeStore = useThemeStore()
+const preferenceStore = usePreferenceStore()
 
-const activeTab = ref('Device')
+// 检查登录状态
+const checkLoginStatus = () => {
+  if (!userStore.isLoggedIn) {
+    // 未登录，显示登录组件
+    return 'User'
+  }
+  return activeTab.value
+}
+
+const tabsModel = computed(() => {
+  const baseTabs = [
+    {
+      label: 'device.list',
+      value: 'Device',
+      component: Device,
+    }
+  ]
+
+  // 只有登录用户才能看到偏好设置
+  if (userStore.isLoggedIn) {
+    baseTabs.push({
+      label: 'preferences.name',
+      value: 'Preference',
+      component: Preference,
+    })
+  }
+
+  return baseTabs
+})
+
+const activeTab = ref(checkLoginStatus())
 provide('activeTab', activeTab)
 
 const renderTab = ref('')
 const rendered = ref(true)
 const renderSign = ref(false)
 
-const themeStore = useThemeStore()
-const preferenceStore = usePreferenceStore()
-
 themeStore.init()
 preferenceStore.init()
+
+// 检查登录状态
+userStore.checkLoginStatus()
+
+// 如果未登录，强制显示登录界面
+if (!userStore.isLoggedIn) {
+  activeTab.value = 'User'
+}
 
 showTips()
 
