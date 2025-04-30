@@ -1151,6 +1151,8 @@ const getScrcpyPath = () => {
   switch (process.platform) {
     case "win32":
       return extraResolve("win/scrcpy/scrcpy.exe");
+    case "darwin":
+      return extraResolve("mac/scrcpy/scrcpy");
     default:
       return which.sync("scrcpy", { nothrow: true });
   }

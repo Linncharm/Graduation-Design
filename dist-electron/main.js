@@ -26,12 +26,14 @@ var _validator, _encryptionKey, _options, _defaultValues;
 import { createRequire } from "node:module";
 import path, { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import require$$0 from "events";
 import electron, { app, session, ipcMain, BrowserWindow, shell, dialog, nativeTheme, Tray, Menu } from "electron";
+import require$$0 from "events";
 import process$1 from "node:process";
 import emojiRegex from "emoji-regex";
 import fs from "node:fs";
 import extName from "ext-name";
+import { spawn } from "child_process";
+import fs$2 from "fs";
 import execa from "execa";
 import os, { userInfo } from "node:os";
 import log$1 from "electron-log/main.js";
@@ -43,6 +45,99 @@ import ajvFormatsModule from "ajv-formats";
 import semver from "semver";
 import which from "which";
 import fs$1 from "fs-extra";
+const is = {
+  dev: !app.isPackaged
+};
+const platform = {
+  isWindows: process.platform === "win32",
+  isMacOS: process.platform === "darwin",
+  isLinux: process.platform === "linux"
+};
+const electronApp = {
+  setAppUserModelId(id) {
+    if (platform.isWindows)
+      app.setAppUserModelId(is.dev ? process.execPath : id);
+  },
+  setAutoLaunch(auto) {
+    if (platform.isLinux)
+      return false;
+    const isOpenAtLogin = () => {
+      return app.getLoginItemSettings().openAtLogin;
+    };
+    if (isOpenAtLogin() !== auto) {
+      app.setLoginItemSettings({
+        openAtLogin: auto,
+        path: process.execPath
+      });
+      return isOpenAtLogin() === auto;
+    } else {
+      return true;
+    }
+  },
+  skipProxy() {
+    return session.defaultSession.setProxy({ mode: "direct" });
+  }
+};
+const optimizer = {
+  watchWindowShortcuts(window2, shortcutOptions) {
+    if (!window2)
+      return;
+    const { webContents: webContents2 } = window2;
+    const { escToCloseWindow = false, zoom = false } = shortcutOptions || {};
+    webContents2.on("before-input-event", (event, input) => {
+      if (input.type === "keyDown") {
+        if (!is.dev) {
+          if (input.code === "KeyR" && (input.control || input.meta))
+            event.preventDefault();
+        } else {
+          if (input.code === "F12") {
+            if (webContents2.isDevToolsOpened()) {
+              webContents2.closeDevTools();
+            } else {
+              webContents2.openDevTools({ mode: "undocked" });
+              console.log("Open dev tool...");
+            }
+          }
+        }
+        if (escToCloseWindow) {
+          if (input.code === "Escape" && input.key !== "Process") {
+            window2.close();
+            event.preventDefault();
+          }
+        }
+        if (!zoom) {
+          if (input.code === "Minus" && (input.control || input.meta))
+            event.preventDefault();
+          if (input.code === "Equal" && input.shift && (input.control || input.meta))
+            event.preventDefault();
+        }
+      }
+    });
+  },
+  registerFramelessWindowIpc() {
+    ipcMain.on("win:invoke", (event, action) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        if (action === "show") {
+          win.show();
+        } else if (action === "showInactive") {
+          win.showInactive();
+        } else if (action === "min") {
+          win.minimize();
+        } else if (action === "max") {
+          const isMaximized = win.isMaximized();
+          if (isMaximized) {
+            win.unmaximize();
+          } else {
+            win.maximize();
+          }
+        } else if (action === "close") {
+          win.close();
+        }
+      }
+    });
+  }
+};
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
@@ -737,99 +832,6 @@ var serverExports = server.exports;
 })(main$1);
 var main = main$1;
 const remote = /* @__PURE__ */ getDefaultExportFromCjs(main);
-const is = {
-  dev: !app.isPackaged
-};
-const platform = {
-  isWindows: process.platform === "win32",
-  isMacOS: process.platform === "darwin",
-  isLinux: process.platform === "linux"
-};
-const electronApp = {
-  setAppUserModelId(id) {
-    if (platform.isWindows)
-      app.setAppUserModelId(is.dev ? process.execPath : id);
-  },
-  setAutoLaunch(auto) {
-    if (platform.isLinux)
-      return false;
-    const isOpenAtLogin = () => {
-      return app.getLoginItemSettings().openAtLogin;
-    };
-    if (isOpenAtLogin() !== auto) {
-      app.setLoginItemSettings({
-        openAtLogin: auto,
-        path: process.execPath
-      });
-      return isOpenAtLogin() === auto;
-    } else {
-      return true;
-    }
-  },
-  skipProxy() {
-    return session.defaultSession.setProxy({ mode: "direct" });
-  }
-};
-const optimizer = {
-  watchWindowShortcuts(window2, shortcutOptions) {
-    if (!window2)
-      return;
-    const { webContents: webContents2 } = window2;
-    const { escToCloseWindow = false, zoom = false } = shortcutOptions || {};
-    webContents2.on("before-input-event", (event, input) => {
-      if (input.type === "keyDown") {
-        if (!is.dev) {
-          if (input.code === "KeyR" && (input.control || input.meta))
-            event.preventDefault();
-        } else {
-          if (input.code === "F12") {
-            if (webContents2.isDevToolsOpened()) {
-              webContents2.closeDevTools();
-            } else {
-              webContents2.openDevTools({ mode: "undocked" });
-              console.log("Open dev tool...");
-            }
-          }
-        }
-        if (escToCloseWindow) {
-          if (input.code === "Escape" && input.key !== "Process") {
-            window2.close();
-            event.preventDefault();
-          }
-        }
-        if (!zoom) {
-          if (input.code === "Minus" && (input.control || input.meta))
-            event.preventDefault();
-          if (input.code === "Equal" && input.shift && (input.control || input.meta))
-            event.preventDefault();
-        }
-      }
-    });
-  },
-  registerFramelessWindowIpc() {
-    ipcMain.on("win:invoke", (event, action) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (win) {
-        if (action === "show") {
-          win.show();
-        } else if (action === "showInactive") {
-          win.showInactive();
-        } else if (action === "min") {
-          win.minimize();
-        } else if (action === "max") {
-          const isMaximized = win.isMaximized();
-          if (isMaximized) {
-            win.unmaximize();
-          } else {
-            win.maximize();
-          }
-        } else if (action === "close") {
-          win.close();
-        }
-      }
-    });
-  }
-};
 function isFullwidthCodePoint(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -4249,6 +4251,8 @@ const getScrcpyPath = () => {
   switch (process.platform) {
     case "win32":
       return extraResolve("win/scrcpy/scrcpy.exe");
+    case "darwin":
+      return extraResolve("mac/scrcpy/scrcpy");
     default:
       return which.sync("scrcpy", { nothrow: true });
   }
@@ -4531,6 +4535,7 @@ if (!debug) {
     "If you need to generate and view the running log, please start the debugging function on the preference setting page"
   );
 }
+remote.initialize();
 contextMenu({
   showCopyImage: false,
   showSelectAll: false,
@@ -4539,8 +4544,46 @@ contextMenu({
   showInspectElement: !isPackaged$1
 });
 process.env.DIST = path.join(__dirname, "../dist");
+const USER_DATA_PATH = path.join(app.getPath("userData"), "users.json");
+const WEB_SERVER_PATH = path.join(__dirname, "../server/index.js");
+console.log("1!!", WEB_SERVER_PATH);
 let mainWindow;
+let webServer;
+function startWebServer() {
+  console.log("开始启动Web服务器...");
+  console.log("服务器路径:", WEB_SERVER_PATH);
+  webServer = spawn("node", [WEB_SERVER_PATH], {
+    stdio: "inherit"
+  });
+  webServer.on("error", (err) => {
+    console.error("Web服务器启动失败:", err);
+    log.error("Web服务器启动失败:", err);
+  });
+  webServer.on("close", (code) => {
+    console.log(`Web服务器退出，退出码: ${code}`);
+    log.info(`Web服务器退出，退出码: ${code}`);
+  });
+  console.log("Web服务器启动成功");
+}
+const readUserData = () => {
+  try {
+    if (fs$2.existsSync(USER_DATA_PATH)) {
+      return JSON.parse(fs$2.readFileSync(USER_DATA_PATH, "utf-8"));
+    }
+  } catch (error) {
+    log.error("读取用户数据失败:", error);
+  }
+  return [];
+};
+const saveUserData = (users) => {
+  try {
+    fs$2.writeFileSync(USER_DATA_PATH, JSON.stringify(users, null, 2));
+  } catch (error) {
+    log.error("保存用户数据失败:", error);
+  }
+};
 function createWindow() {
+  console.log("开始创建主窗口...");
   mainWindow = new BrowserWindow({
     icon: getLogoPath(),
     show: false,
@@ -4553,27 +4596,44 @@ function createWindow() {
       preload: path.join(__dirname, "preload.mjs"),
       nodeIntegration: true,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      contextIsolation: false,
+      enableRemoteModule: true
     }
   });
+  console.log("主窗口创建完成，初始化remote...");
   remote.enable(mainWindow.webContents);
-  remote.initialize();
   mainWindow.on("ready-to-show", () => {
+    console.log("主窗口准备显示...");
     mainWindow.show();
   });
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: "deny" };
   });
+  console.log("加载页面...");
   loadPage(mainWindow);
+  console.log("初始化IPC...");
   ipc(mainWindow);
+  console.log("初始化控制模块...");
   control();
+  console.log("主窗口创建流程完成");
 }
+ipcMain.handle("get-user-data", () => {
+  return readUserData();
+});
+ipcMain.handle("save-user-data", (event, users) => {
+  saveUserData(users);
+});
 app.whenReady().then(() => {
+  console.log("Electron应用准备就绪");
   electronApp.setAppUserModelId("com.viarotel.escrcpy");
   app.on("browser-window-created", (_, window2) => {
     optimizer.watchWindowShortcuts(window2);
   });
+  console.log("准备启动Web服务器...");
+  startWebServer();
+  console.log("准备创建主窗口...");
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -4586,6 +4646,15 @@ app.whenReady().then(() => {
 });
 app.on("window-all-closed", () => {
   app.isQuiting = true;
+  if (webServer) {
+    webServer.kill();
+  }
   app.quit();
   mainWindow = null;
+});
+process.on("uncaughtException", (err) => {
+  log.error("未捕获的异常:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  log.error("未处理的Promise拒绝:", reason);
 });

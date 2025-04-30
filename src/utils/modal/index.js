@@ -1,10 +1,10 @@
 import { ElMessage } from 'element-plus'
-import logoPath from '$electron/resources/build/logo.png'
+// import logoPath from '$electron/resources/build/logo.png'
 
 export function adaptiveMessage(content, { type, system } = {}) {
   if (system) {
     new Notification(window.t(`common.${type}`), {
-      icon: logoPath,
+      // icon: logoPath,
       body: content,
     })
 

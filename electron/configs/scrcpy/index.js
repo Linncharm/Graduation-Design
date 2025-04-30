@@ -3,12 +3,12 @@ import which from 'which'
 
 export const getScrcpyPath = () => {
   switch (process.platform) {
+    // windows 平台
     case 'win32':
       return extraResolve('win/scrcpy/scrcpy.exe')
-    // case 'darwin':
-    //   return extraResolve('mac/scrcpy/scrcpy')
-    // case 'linux':
-    //   return extraResolve('linux/scrcpy/scrcpy')
+    // mac 平台
+    case 'darwin':
+      return extraResolve('mac/scrcpy/scrcpy')
     default:
       return which.sync('scrcpy', { nothrow: true })
   }
