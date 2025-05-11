@@ -31,6 +31,7 @@
             </div>
           </div>
         </template>
+        <!-- 折叠面板的内容部分 -->
         <div class="pr-8 pt-4">
           <el-row :gutter="20">
             <el-col
@@ -40,8 +41,10 @@
               :offset="item_1.offset || 0"
             >
               <el-form-item :label="$t(item_1.label)" :prop="item_1.field">
+                <!-- 自定义表单项标签部分 -->
                 <template #label>
                   <div class="flex items-center">
+                    <!-- 如果有提示信息，则显示一个带有提示图标的工具提示 -->
                     <el-tooltip
                       v-if="item_1.tips"
                       popper-class="max-w-96"
@@ -63,6 +66,10 @@
                   </div>
                 </template>
 
+                <!-- 动态组件渲染系统：
+                  1. 根据item_1.type配置项类型从inputModel映射对象中获取对应的输入组件
+                  2. inputModel对象包含各种表单控件组件的映射，如Input、Select、Switch等
+                  3. 使用v-model实现与preferenceData[item_1.field]的双向数据绑定 -->
                 <component
                   :is="inputModel[item_1.type]"
                   v-model="preferenceData[item_1.field]"

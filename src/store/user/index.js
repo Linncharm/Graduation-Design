@@ -22,16 +22,16 @@ export const useUserStore = defineStore('user', () => {
   const currentUser = ref(null)
   const preferenceStore = usePreferenceStore()
 
-  // 初始化API服务
-  apiService.setUserStore({
-    token: token,
-    currentUser: currentUser,
-    updateUserPermissions: (permissions) => {
-      if (currentUser.value) {
-        currentUser.value.permissions = permissions
-      }
-    }
-  })
+  // 初始化API服务，应该在登录后设置
+  // apiService.setUserStore({
+  //   token: token.value,
+  //   currentUser: currentUser.value,
+  //   updateUserPermissions: (permissions) => {
+  //     if (currentUser.value) {
+  //       currentUser.value.permissions = permissions
+  //     }
+  //   }
+  // })
 
   // 权限检查
   const hasPermission = (permission) => {
@@ -80,30 +80,30 @@ export const useUserStore = defineStore('user', () => {
   }
 
   // 初始化管理员账户
-  const initAdminAccount = async () => {
-    try {
-      const users = await apiService.getUsers()
-      const adminExists = users.some(user => user.username === 'admin')
+  // const initAdminAccount = async () => {
+  //   try {
+  //     const users = await apiService.getUsers()
+  //     const adminExists = users.some(user => user.username === 'admin')
       
-      if (!adminExists) {
-        const adminUser = {
-          username: 'admin',
-          password: 'admin123',
-          role: PERMISSIONS.ADMIN,
-          permissions: [PERMISSIONS.ADMIN, PERMISSIONS.MANAGE_USERS, PERMISSIONS.MANAGE_SETTINGS],
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          avatar: 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png',
-          description: '系统管理员'
-        }
-        await apiService.createUser(adminUser)
-        localUsers.value.push(adminUser)
-        saveLocalUsers()
-      }
-    } catch (error) {
-      console.error('初始化管理员账户失败:', error)
-    }
-  }
+  //     if (!adminExists) {
+  //       const adminUser = {
+  //         username: 'admin',
+  //         password: 'admin123',
+  //         role: PERMISSIONS.ADMIN,
+  //         permissions: [PERMISSIONS.ADMIN, PERMISSIONS.MANAGE_USERS, PERMISSIONS.MANAGE_SETTINGS],
+  //         createdAt: new Date().toISOString(),
+  //         lastLoginAt: new Date().toISOString(),
+  //         avatar: 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png',
+  //         description: '系统管理员'
+  //       }
+  //       await apiService.createUser(adminUser)
+  //       localUsers.value.push(adminUser)
+  //       saveLocalUsers()
+  //     }
+  //   } catch (error) {
+  //     console.error('初始化管理员账户失败:', error)
+  //   }
+  // }
 
   // 检查登录状态
   const checkLoginStatus = () => {
@@ -113,6 +113,11 @@ export const useUserStore = defineStore('user', () => {
       token.value = savedToken
       currentUser.value = JSON.parse(savedUser)
       userInfo.value = currentUser.value
+      apiService.setUserStore({
+        token:token.value,
+        currentUser:currentUser.value
+      })
+      apiService.init()
     }
   }
 
@@ -181,6 +186,8 @@ export const useUserStore = defineStore('user', () => {
     try {
       // 通过API注册用户
       const response = await apiService.register(userData)
+
+      console.log("register" , response)
       
       // 创建新用户对象
       const newUser = {
@@ -275,7 +282,7 @@ export const useUserStore = defineStore('user', () => {
 
   // 初始化
   initLocalUsers()
-  initAdminAccount()
+  //initAdminAccount()
   checkLoginStatus()
 
   return {

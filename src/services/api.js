@@ -8,7 +8,7 @@ const api = axios.create({
 })
 
 // 心跳间隔（毫秒）
-const HEARTBEAT_INTERVAL = 30000
+const HEARTBEAT_INTERVAL = 3000
 
 class APIService {
   constructor() {
@@ -43,11 +43,15 @@ class APIService {
 
   // 发送心跳
   async sendHeartbeat() {
+    console.log("start heartbeat")
     try {
+      console.log(this.userStore)
       const response = await api.post('/heartbeat', {
         token: this.userStore.token,
         username: this.userStore.currentUser?.username
       })
+
+      console.log("heartbeat", response)
 
       if (response.data.success) {
         // 更新用户权限

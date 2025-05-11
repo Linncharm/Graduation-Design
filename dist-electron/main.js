@@ -4546,7 +4546,6 @@ contextMenu({
 process.env.DIST = path.join(__dirname, "../dist");
 const USER_DATA_PATH = path.join(app.getPath("userData"), "users.json");
 const WEB_SERVER_PATH = path.join(__dirname, "../server/index.js");
-console.log("1!!", WEB_SERVER_PATH);
 let mainWindow;
 let webServer;
 function startWebServer() {

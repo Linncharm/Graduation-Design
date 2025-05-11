@@ -186,5 +186,10 @@ export const usePreferenceStore = defineStore({
 
       return true
     },
+    setUserScope(username, scope = 'global') {
+      const userScope = replaceIP(`${username}.${scope}`)
+      window.appStore.set(`scrcpy.userScope.${username}`, userScope)
+      this.init(userScope)
+    },
   },
 })

@@ -96,7 +96,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { i18n } from '$/locales/index.js'
 import localeModel from '$/plugins/element-plus/locale.js'
 import { usePreferenceStore } from '$/store/preference/index.js'
@@ -105,8 +105,9 @@ import { useThemeStore } from '$/store/theme/index.js'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import Device from './components/Device/index.vue'
 import Preference from './components/Preference/index.vue'
+import Profile from './components/Profile/index.vue'
 import Quick from './components/Quick/index.vue'
-import User from './components/User/index.vue'
+import { apiService } from './services/api'
 
 const locale = computed(() => {
   const i18nLocale = i18n.global.locale.value
@@ -171,6 +172,7 @@ const handleSubmit = async () => {
     if (isLogin.value) {
       await userStore.login(form.value.username, form.value.password)
       ElMessage.success('登录成功')
+      activeTab.value = 'Profile'
     } else {
       await userStore.register({
         username: form.value.username,
@@ -186,37 +188,31 @@ const handleSubmit = async () => {
   }
 }
 
-// 检查登录状态
-const checkLoginStatus = () => {
-  if (!userStore.isLoggedIn) {
-    // 未登录，显示登录组件
-    return 'User'
+const tabsModel = [
+  {
+    label: 'device.list',
+    value: 'Device',
+    component: Device,
+  },
+  {
+    label: 'preferences.name',
+    value: 'Preference',
+    component: Preference,
+  },
+  {
+    label: '个人信息',
+    value: 'Profile',
+    component: Profile,
+  },
+]
+
+onMounted(()=>{
+  if(userStore.isLoggedIn){
+    apiService.init()
   }
-  return activeTab.value
-}
-
-const tabsModel = computed(() => {
-  const baseTabs = [
-    {
-      label: 'device.list',
-      value: 'Device',
-      component: Device,
-    }
-  ]
-
-  // 只有登录用户才能看到偏好设置
-  if (userStore.isLoggedIn) {
-    baseTabs.push({
-      label: 'preferences.name',
-      value: 'Preference',
-      component: Preference,
-    })
-  }
-
-  return baseTabs
 })
 
-const activeTab = ref(checkLoginStatus())
+const activeTab = ref('Profile')
 provide('activeTab', activeTab)
 
 const renderTab = ref('')
@@ -226,13 +222,13 @@ const renderSign = ref(false)
 themeStore.init()
 preferenceStore.init()
 
-// 检查登录状态
-userStore.checkLoginStatus()
+// // 检查登录状态
+// userStore.checkLoginStatus()
 
-// 如果未登录，强制显示登录界面
-if (!userStore.isLoggedIn) {
-  activeTab.value = 'User'
-}
+// // 如果未登录，强制显示登录界面
+// if (!userStore.isLoggedIn) {
+//   activeTab.value = 'User'
+// }
 
 showTips()
 
@@ -286,7 +282,7 @@ async function onTabChange(value) {
     return false
   }
 
-  if (['Device', 'Preference'].includes(value)) {
+  if (['Device', 'Preference', 'Profile'].includes(value)) {
     reRender()
   }
 

@@ -250,6 +250,7 @@ export default {
 
       try {
         const data = await this.$store.device.getList()
+        console.log("device data", data)
 
         this.deviceList = data
       }

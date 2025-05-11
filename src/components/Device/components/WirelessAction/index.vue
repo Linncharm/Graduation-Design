@@ -6,9 +6,6 @@
     :disabled="row.$unauthorized"
     @click="handleWifi(row)"
   >
-    <template #icon>
-      <svg-icon name="wifi"></svg-icon>
-    </template>
     {{ $t('device.wireless.mode') }}
   </el-button>
 

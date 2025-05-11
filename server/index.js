@@ -27,16 +27,16 @@ app.get('/admin', (req, res) => {
 const JWT_SECRET = 'your-secret-key'
 
 // 管理页面特殊权限中间件
-const adminAuth = (req, res, next) => {
-  if (req.headers['x-admin-request'] === 'true') {
-    req.user = {
-      username: 'admin',
-      permissions: ['admin', 'manage_users', 'manage_settings']
-    }
-    return next()
-  }
-  next()
-}
+// const adminAuth = (req, res, next) => {
+//   if (req.headers['x-admin-request'] === 'true') {
+//     req.user = {
+//       username: 'admin',
+//       permissions: ['admin', 'manage_users', 'manage_settings']
+//     }
+//     return next()
+//   }
+//   next()
+// }
 
 // 验证Token中间件
 const authenticateToken = (req, res, next) => {
@@ -167,7 +167,7 @@ app.post('/api/heartbeat', async (req, res) => {
 })
 
 // 用户管理接口
-app.get('/api/users', adminAuth, authenticateToken, async (req, res) => {
+app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: {
@@ -187,7 +187,7 @@ app.get('/api/users', adminAuth, authenticateToken, async (req, res) => {
   }
 })
 
-app.post('/api/users', adminAuth, authenticateToken, async (req, res) => {
+app.post('/api/users', authenticateToken, async (req, res) => {
   const { username, password, permissions } = req.body
   if (!username || !password) {
     return res.status(400).json({ error: '用户名和密码不能为空' })
@@ -219,7 +219,7 @@ app.post('/api/users', adminAuth, authenticateToken, async (req, res) => {
   }
 })
 
-app.put('/api/users/:username', adminAuth, authenticateToken, async (req, res) => {
+app.put('/api/users/:username', authenticateToken, async (req, res) => {
   const { username } = req.params
   const { permissions } = req.body
 
@@ -243,7 +243,7 @@ app.put('/api/users/:username', adminAuth, authenticateToken, async (req, res) =
   }
 })
 
-app.delete('/api/users/:username', adminAuth, authenticateToken, async (req, res) => {
+app.delete('/api/users/:username', authenticateToken, async (req, res) => {
   const { username } = req.params
   if (username === 'admin') {
     return res.status(403).json({ error: '不能删除管理员账号' })
@@ -263,7 +263,7 @@ app.delete('/api/users/:username', adminAuth, authenticateToken, async (req, res
 })
 
 // 权限管理接口
-app.get('/api/permissions', adminAuth, authenticateToken, async (req, res) => {
+app.get('/api/permissions', authenticateToken, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { username: req.user.username }
@@ -274,7 +274,7 @@ app.get('/api/permissions', adminAuth, authenticateToken, async (req, res) => {
   }
 })
 
-app.put('/api/users/:username/permissions', adminAuth, authenticateToken, async (req, res) => {
+app.put('/api/users/:username/permissions', authenticateToken, async (req, res) => {
   const { username } = req.params
   const { permissions } = req.body
 
